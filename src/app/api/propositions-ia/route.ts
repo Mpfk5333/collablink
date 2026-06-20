@@ -23,16 +23,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const json = await request.json()
-    const { projetId } = json
-    if (!projetId) {
-      return NextResponse.json({ erreur: 'projetId requis' }, { status: 400 })
-    }
-
+    
     // Convert keys to snake_case for Laravel
     const snakeBody = keysToSnake(json)
     
-    // Call Laravel: POST /projets/{id}/propositions-ia
-    return laravelRequest(request, `/projets/${projetId}/propositions-ia`, {
+    // New route: Client propose to freelance via POST /propositions-ia
+    // (No longer using /projets/{id}/propositions-ia)
+    return laravelRequest(request, `/propositions-ia`, {
       method: 'POST',
       body: snakeBody
     })

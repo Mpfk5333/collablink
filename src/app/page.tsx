@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/store/app-store'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,7 +22,7 @@ import {
   Bell, LogOut, Star, Users, FileCheck, AlertTriangle, Settings,
   ChevronLeft, ChevronRight, Plus, Eye, CheckCircle, XCircle,
   Send, DollarSign, Shield, TrendingUp, Clock, UserCheck,
-  Gavel, ArrowRight, Search, FileUp, Handshake, Edit, Trash2
+  Gavel, ArrowRight, Search, FileUp, Handshake, Edit, Trash2, ListChecks
 } from 'lucide-react'
 
 // ============================================================
@@ -167,11 +168,11 @@ function ProfileViewer({ userId, onClose }: { userId: string | null; onClose: ()
               <div className="grid grid-cols-4 gap-3">
                 <div className="bg-blue-50 rounded p-3 text-center">
                   <p className="text-xs text-muted-foreground">Fiabilité</p>
-                  <p className="text-lg font-bold text-[#3B82F6]">{profil.profilFreelance.scoreFiabilite?.toFixed(1) || '0.0'}/5</p>
+                  <p className="text-lg font-bold text-[#3B82F6]">{Number(profil.profilFreelance.scoreFiabilite || 0).toFixed(1)}/5</p>
                 </div>
                 <div className="bg-green-50 rounded p-3 text-center">
                   <p className="text-xs text-muted-foreground">Complétion</p>
-                  <p className="text-lg font-bold text-green-600">{profil.profilFreelance.tauxCompletion?.toFixed(0) || 0}%</p>
+                  <p className="text-lg font-bold text-green-600">{Number(profil.profilFreelance.tauxCompletion || 0).toFixed(0)}%</p>
                 </div>
                 <div className="bg-purple-50 rounded p-3 text-center">
                   <p className="text-xs text-muted-foreground">Projets</p>
@@ -685,6 +686,9 @@ function Navbar() {
     return () => { cancelled = true }
   }, [user])
 
+  // Rafraîchissement automatique des notifications toutes les 10 secondes
+  useAutoRefresh(loadNotifications, 10000, !!user)
+
   const markAsRead = async (notif: any) => {
     if (!notif.estLue) {
       await fetch('/api/notifications', {
@@ -969,26 +973,26 @@ function ClientDashboard() {
   const { user, setCurrentView } = useAppStore()
   const [stats, setStats] = useState({ projets: 0, enCours: 0, candidatures: 0, depenses: 0 })
 
-  useEffect(() => {
+  const fetchStats = useCallback(async () => {
     if (!user) return
-    const fetchStats = async () => {
-      const [projetsRes, propositionsRes] = await Promise.all([
-        fetch(`/api/projets?clientId=${user.id}`),
-        fetch(`/api/propositions?projetId=`)
-      ])
-      const projets = await projetsRes.json()
-      const propositions = await propositionsRes.json()
-      const mesProjets = Array.isArray(projets) ? projets : (projets?.data || [])
-      const mesPropositions = Array.isArray(propositions) ? propositions : (propositions?.data || [])
-      setStats({
-        projets: mesProjets.length,
-        enCours: mesProjets.filter((p: any) => p.statut === 'en_cours').length,
-        candidatures: mesPropositions.filter((p: any) => mesProjets.some((pr: any) => pr.id === p.projetId)).length,
-        depenses: mesProjets.reduce((sum: number, p: any) => sum + (p.budgetEstime || 0), 0)
-      })
-    }
-    fetchStats()
+    const [projetsRes, propositionsRes] = await Promise.all([
+      fetch(`/api/projets?clientId=${user.id}`),
+      fetch(`/api/propositions?projetId=`)
+    ])
+    const projets = await projetsRes.json()
+    const propositions = await propositionsRes.json()
+    const mesProjets = Array.isArray(projets) ? projets : (projets?.data || [])
+    const mesPropositions = Array.isArray(propositions) ? propositions : (propositions?.data || [])
+    setStats({
+      projets: mesProjets.length,
+      enCours: mesProjets.filter((p: any) => p.statut === 'en_cours').length,
+      candidatures: mesPropositions.filter((p: any) => mesProjets.some((pr: any) => pr.id === p.projetId)).length,
+      depenses: mesProjets.reduce((sum: number, p: any) => sum + (p.budgetEstime || 0), 0)
+    })
   }, [user])
+
+  useEffect(() => { fetchStats() }, [fetchStats])
+  useAutoRefresh(fetchStats, 5000, !!user)
 
   return (
     <div className="space-y-6">
@@ -1037,28 +1041,28 @@ function FreelanceDashboard() {
   const { user, setCurrentView } = useAppStore()
   const [stats, setStats] = useState({ disponibles: 0, candidatures: 0, enCours: 0, gains: 0 })
 
-  useEffect(() => {
+  const fetchStats = useCallback(async () => {
     if (!user) return
-    const fetchStats = async () => {
-      const [projetsRes, candidaturesRes, portefeuilleRes] = await Promise.all([
-        fetch(`/api/projets?statut=publie`),
-        fetch(`/api/propositions?freelanceId=${user.id}`),
-        fetch(`/api/portefeuille?utilisateurId=${user.id}`)
-      ])
-      const projets = await projetsRes.json()
-      const candidatures = await candidaturesRes.json()
-      const portefeuilleData = await portefeuilleRes.json()
-      const projetsArr = Array.isArray(projets) ? projets : (projets?.data || [])
-      const candidaturesArr = Array.isArray(candidatures) ? candidatures : (candidatures?.data || [])
-      setStats({
-        disponibles: projetsArr.length,
-        candidatures: candidaturesArr.length,
-        enCours: candidaturesArr.filter((c: any) => c.statut === 'acceptee').length,
-        gains: portefeuilleData?.portefeuille?.totalGagne || 0,
-      })
-    }
-    fetchStats()
+    const [projetsRes, candidaturesRes, portefeuilleRes] = await Promise.all([
+      fetch(`/api/projets?statut=publie`),
+      fetch(`/api/propositions?freelanceId=${user.id}`),
+      fetch(`/api/portefeuille?utilisateurId=${user.id}`)
+    ])
+    const projets = await projetsRes.json()
+    const candidatures = await candidaturesRes.json()
+    const portefeuilleData = await portefeuilleRes.json()
+    const projetsArr = Array.isArray(projets) ? projets : (projets?.data || [])
+    const candidaturesArr = Array.isArray(candidatures) ? candidatures : (candidatures?.data || [])
+    setStats({
+      disponibles: projetsArr.length,
+      candidatures: candidaturesArr.length,
+      enCours: candidaturesArr.filter((c: any) => c.statut === 'acceptee').length,
+      gains: portefeuilleData?.portefeuille?.totalGagne || 0,
+    })
   }, [user])
+
+  useEffect(() => { fetchStats() }, [fetchStats])
+  useAutoRefresh(fetchStats, 5000, !!user)
 
   return (
     <div className="space-y-6">
@@ -1100,7 +1104,7 @@ function FreelanceDashboard() {
 function AdminDashboard() {
   const [stats, setStats] = useState<any>({})
 
-  useEffect(() => {
+  const fetchStats = useCallback(() => {
     fetch('/api/admin?type=stats').then(r => r.json()).then(d => {
       // Laravel retourne { stats: { utilisateurs, clients, ... }, revenusCommission }
       // On aplatit pour accès direct
@@ -1118,6 +1122,9 @@ function AdminDashboard() {
       })
     })
   }, [])
+
+  useEffect(() => { fetchStats() }, [fetchStats])
+  useAutoRefresh(fetchStats, 5000)
 
   return (
     <div className="space-y-6">
@@ -1181,11 +1188,17 @@ function ClientProjets() {
     cahierChargesUrl: '', cahierChargesNom: '', competenceIds: [] as string[], statut: 'brouillon'
   })
 
-  useEffect(() => {
+  const loadProjets = useCallback(() => {
     if (!user) return
     fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => setProjets(Array.isArray(d) ? d : (d?.data || [])))
-    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : (d?.data || []))).catch(() => {})
   }, [user])
+
+  useEffect(() => {
+    loadProjets()
+    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : (d?.data || []))).catch(() => {})
+  }, [loadProjets])
+
+  useAutoRefresh(loadProjets, 5000, !!user)
 
   // Upload du cahier des charges (sélection de fichier depuis la machine, type pièces jointes WhatsApp)
   const handleCahierUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1408,10 +1421,60 @@ function ClientProjets() {
                 onChange={(vals) => setForm({ ...form, competenceIds: vals as any })}
               />
             </div>
+
+            {/* Sélecteur de statut - visible uniquement en mode édition et si le projet est en brouillon */}
+            {editingProjet && editingProjet.statut === 'brouillon' && (
+              <div className="border-2 border-[#3B82F6] rounded-lg p-4 bg-blue-50/50">
+                <Label className="text-base font-semibold text-[#1E3A8A]">📢 Voulez-vous publier ce projet ?</Label>
+                <p className="text-xs text-muted-foreground mb-3 mt-1">
+                  Changez le statut pour rendre le projet visible aux freelances
+                </p>
+                <Select value={form.statut} onValueChange={(v) => setForm({...form, statut: v})}>
+                  <SelectTrigger className="bg-white border-2">
+                    <SelectValue placeholder="Sélectionner le statut" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="brouillon">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-gray-500"></div>
+                        <div>
+                          <p className="font-medium">Garder en brouillon</p>
+                          <p className="text-xs text-muted-foreground">Non visible aux freelances</p>
+                        </div>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="publie">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                        <div>
+                          <p className="font-medium">Publier maintenant</p>
+                          <p className="text-xs text-muted-foreground">Visible et accessible aux freelances</p>
+                        </div>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className={`mt-3 p-3 rounded-lg ${form.statut === 'publie' ? 'bg-green-100 border border-green-300' : 'bg-gray-100 border border-gray-300'}`}>
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    {form.statut === 'brouillon' ? (
+                      <><XCircle className="w-4 h-4 text-gray-600" /> Statut actuel : Brouillon</>
+                    ) : (
+                      <><CheckCircle className="w-4 h-4 text-green-600" /> Le projet sera publié !</>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {form.statut === 'brouillon' 
+                      ? 'Le projet reste privé. Vous pouvez continuer à le modifier.'
+                      : 'Une fois publié, les freelances pourront le voir et postuler. Les recommandations IA seront générées automatiquement.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-2">
               {editingProjet ? (
                 <Button type="submit" className="flex-1 bg-gradient-to-r from-[#1E3A8A] to-[#3B82F6]">
-                  <Edit className="w-4 h-4 mr-2" /> Mettre à jour
+                  <Edit className="w-4 h-4 mr-2" /> {form.statut === 'publie' && editingProjet.statut === 'brouillon' ? 'Publier le projet' : 'Mettre à jour'}
                 </Button>
               ) : (
                 <>
@@ -1695,7 +1758,7 @@ function RechercherFreelancePage() {
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                                {rec.freelance.profilFreelance?.scoreFiabilite?.toFixed(1) || '0.0'}/5
+                                {Number(rec.freelance.profilFreelance?.scoreFiabilite || 0).toFixed(1)}/5
                               </span>
                               <span>• {rec.freelance.profilFreelance?.nombreProjets || 0} projet(s)</span>
                               {rec.freelance.profilFreelance?.tarif && (
@@ -1811,7 +1874,7 @@ function RechercherFreelancePage() {
                         )}
                         <div className="flex items-center gap-1 mt-1">
                           <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                          <span className="text-xs font-medium">{f.profilFreelance?.scoreFiabilite?.toFixed(1) || '0.0'}/5</span>
+                          <span className="text-xs font-medium">{Number(f.profilFreelance?.scoreFiabilite || 0).toFixed(1)}/5</span>
                           <span className="text-xs text-muted-foreground ml-1">
                             • {f.profilFreelance?.nombreProjets || 0} projet(s)
                           </span>
@@ -1889,10 +1952,13 @@ function FairePropositionButton({ freelance, clientId }: { freelance: any; clien
 
   useEffect(() => {
     if (!open || !clientId) return
-    // Charger les projets publiés/en recrutement du client
+    // Charger tous les projets du client cible (clientId transmis → Laravel filtre par client_id)
     fetch(`/api/projets?clientId=${clientId}`)
       .then(r => r.json())
-      .then(d => setProjets((Array.isArray(d) ? d : (d?.data || [])).filter((p: any) => ['publie', 'en_recrutement'].includes(p.statut))))
+      .then(d => {
+        const tous = Array.isArray(d) ? d : (d?.data || [])
+        setProjets(tous.filter((p: any) => ['publie', 'en_recrutement', 'brouillon'].includes(p.statut)))
+      })
       .catch(() => {})
   }, [open, clientId])
 
@@ -1941,12 +2007,15 @@ function FairePropositionButton({ freelance, clientId }: { freelance: any; clien
             <div>
               <Label>Projet concerné *</Label>
               <Select value={form.projetId} onValueChange={v => setForm({...form, projetId: v})}>
-                <SelectTrigger><SelectValue placeholder="Sélectionnez un projet publié" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Sélectionnez un projet" /></SelectTrigger>
                 <SelectContent>
                   {projets.length === 0 ? (
-                    <SelectItem value="__none__" disabled>Aucun projet publié</SelectItem>
+                    <SelectItem value="__none__" disabled>Aucun projet disponible</SelectItem>
                   ) : projets.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.titre} ({p.budgetEstime?.toLocaleString('fr-FR')} FCFA)</SelectItem>
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.titre} — {p.budgetEstime?.toLocaleString('fr-FR')} FCFA
+                      {p.statut === 'brouillon' ? ' (brouillon)' : p.statut === 'en_recrutement' ? ' (en recrutement)' : ' (publié)'}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1987,11 +2056,14 @@ function FreelanceProjetsDispo() {
   const { user } = useAppStore()
   const [projets, setProjets] = useState<any[]>([])
   const [candidaterProjet, setCandidaterProjet] = useState<any | null>(null)
-  const [form, setForm] = useState({ montantPropose: 0, delaiPropose: '' })
+  const [form, setForm] = useState({ montantPropose: 0, delaiPropose: '', lettreMotivation: '' })
 
-  useEffect(() => {
+  const loadProjets = useCallback(() => {
     fetch(`/api/projets?statut=publie`).then(r => r.json()).then(d => setProjets(Array.isArray(d) ? d : (d?.data || [])))
   }, [])
+
+  useEffect(() => { loadProjets() }, [loadProjets])
+  useAutoRefresh(loadProjets, 5000)
 
   const ouvrirCandidature = (projet: any) => {
     setCandidaterProjet(projet)
@@ -1999,6 +2071,7 @@ function FreelanceProjetsDispo() {
     setForm({
       montantPropose: projet.budgetEstime || 0,
       delaiPropose: projet.delaiLivraison ? new Date(projet.delaiLivraison).toISOString().split('T')[0] : '',
+      lettreMotivation: ''
     })
   }
 
@@ -2020,12 +2093,14 @@ function FreelanceProjetsDispo() {
         freelanceId: user?.id,
         montantPropose: form.montantPropose,
         delaiPropose: form.delaiPropose,
+        lettreMotivation: form.lettreMotivation || undefined,
       })
     })
     const data = await res.json()
     if (data.erreur) { toast.error(data.erreur); return }
     toast.success('Candidature envoyée !')
     setCandidaterProjet(null)
+    setForm({ montantPropose: 0, delaiPropose: '', lettreMotivation: '' })
   }
 
   return (
@@ -2098,6 +2173,12 @@ function FreelanceProjetsDispo() {
                 <Input type="date" value={form.delaiPropose} onChange={e => setForm({...form, delaiPropose: e.target.value})} />
                 <p className="text-xs text-muted-foreground mt-1">Modifiez si vous souhaitez proposer un autre délai</p>
               </div>
+              <div>
+                <Label>Lettre de motivation (optionnel)</Label>
+                <Textarea rows={3} value={form.lettreMotivation} onChange={e => setForm({...form, lettreMotivation: e.target.value})}
+                  placeholder="Présentez brièvement votre profil et pourquoi vous êtes le meilleur candidat pour ce projet..." />
+                <p className="text-xs text-muted-foreground mt-1">Une lettre de motivation augmente vos chances d'être sélectionné</p>
+              </div>
               <div className="flex gap-2 pt-2">
                 <Button variant="outline" className="flex-1" onClick={() => setCandidaterProjet(null)}>Annuler</Button>
                 <Button className="flex-1 bg-[#3B82F6]" onClick={handleCandidater}>Envoyer ma candidature</Button>
@@ -2121,10 +2202,10 @@ function ClientCandidatures() {
   const [paying, setPaying] = useState(false)
   const [uploadingJustificatif, setUploadingJustificatif] = useState(false)
   const [formPrecontrat, setFormPrecontrat] = useState({
-    objectifs: '', budgetFinal: 0, dateDebut: '', dateFin: '', clauses: '', justificatifUrl: '', justificatifNom: ''
+    objectifs: '', budgetFinal: 0, dateDebut: '', dateFin: '', clauses: '', justificatifUrl: '', justificatifNom: '', modePaiement: 'mobile_money'
   })
 
-  useEffect(() => {
+  const loadCandidatures = useCallback(() => {
     if (!user) return
     fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => {
       const p = Array.isArray(d) ? d : (d?.data || [])
@@ -2136,6 +2217,9 @@ function ClientCandidatures() {
         })
     })
   }, [user])
+
+  useEffect(() => { loadCandidatures() }, [loadCandidatures])
+  useAutoRefresh(loadCandidatures, 5000, !!user)
 
   const accepter = async (id: string) => {
     const res = await fetch('/api/propositions', {
@@ -2202,41 +2286,37 @@ function ClientCandidatures() {
   // Soumettre le paiement + génération du précontrat
   const soumettrePaiement = async () => {
     if (!payerProposition) return
-    if (!formPrecontrat.objectifs || !formPrecontrat.budgetFinal || !formPrecontrat.dateDebut || !formPrecontrat.dateFin) {
-      toast.error('Veuillez remplir tous les champs obligatoires')
-      return
-    }
     if (!formPrecontrat.justificatifUrl) {
       toast.error('Veuillez uploader un justificatif de paiement')
       return
     }
+    if (!formPrecontrat.modePaiement) {
+      toast.error('Veuillez sélectionner un mode de paiement')
+      return
+    }
+    
     setPaying(true)
     try {
+      // Le précontrat a déjà été créé lors de l'acceptation, on envoie juste le paiement
       const res = await fetch('/api/contrats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'payer_et_generer_precontrat',
+          action: 'payer_precontrat_existant',
           propositionId: payerProposition.id,
-          clientId: user?.id,
-          ...formPrecontrat,
+          justificatifUrl: formPrecontrat.justificatifUrl,
+          modePaiement: formPrecontrat.modePaiement,
         })
       })
       const data = await res.json()
       if (data.erreur) {
         toast.error(data.erreur)
       } else {
-        toast.success('Paiement soumis ! Le précontrat sera généré dès validation par l\'administrateur.')
+        toast.success('Paiement soumis ! En attente de validation par l\'administrateur.')
         setPayerProposition(null)
-        // Recharger les propositions pour mettre à jour l'affichage
-        if (user) {
-          fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => {
-            const p = Array.isArray(d) ? d : (d?.data || [])
-            setProjets(p)
-            Promise.all(p.map((pr: any) => fetch(`/api/propositions?projetId=${pr.id}`).then(r => r.json())))
-              .then(results => setPropositions(results.flatMap((r: any) => Array.isArray(r) ? r : (r?.data || []))))
-          })
-        }
+        setFormPrecontrat({ objectifs: '', budgetFinal: 0, dateDebut: '', dateFin: '', clauses: '', justificatifUrl: '', justificatifNom: '', modePaiement: 'mobile_money' })
+        // Recharger les propositions
+        loadPropositions()
       }
     } catch {
       toast.error('Erreur lors de la soumission du paiement')
@@ -2308,21 +2388,21 @@ function ClientCandidatures() {
         </Card>
       ))}
 
-      {/* Dialogue de paiement et génération de précontrat */}
+      {/* Dialogue de paiement pour un précontrat existant */}
       <Dialog open={!!payerProposition} onOpenChange={() => setPayerProposition(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-xl">💳 Payer et générer le précontrat</DialogTitle>
+            <DialogTitle className="text-xl">💳 Payer le précontrat</DialogTitle>
             <DialogDescription>
-              Le paiement sera mis en séquestre en attente de validation par l'administrateur.
-              Une fois validé, le précontrat sera visible par le freelance qui pourra le valider ou le refuser.
+              Un précontrat a été automatiquement généré lors de l'acceptation de la candidature.
+              Procédez au paiement pour que le freelance puisse le signer.
             </DialogDescription>
           </DialogHeader>
           {payerProposition && (
             <div className="space-y-4">
               {/* Récapitulatif */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-                <p className="text-sm font-semibold text-[#1E3A8A] uppercase tracking-wide">Récapitulatif de la candidature acceptée</p>
+                <p className="text-sm font-semibold text-[#1E3A8A] uppercase tracking-wide">Récapitulatif du précontrat</p>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-muted-foreground">Freelance :</span>{' '}
@@ -2333,84 +2413,57 @@ function ClientCandidatures() {
                     <span className="font-semibold">{payerProposition.projet?.titre}</span>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Montant proposé :</span>{' '}
+                    <span className="text-muted-foreground">Montant :</span>{' '}
                     <span className="font-semibold">{payerProposition.montantPropose?.toLocaleString('fr-FR')} FCFA</span>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Délai proposé :</span>{' '}
+                    <span className="text-muted-foreground">Délai :</span>{' '}
                     <span className="font-semibold">{new Date(payerProposition.delaiPropose).toLocaleDateString('fr-FR')}</span>
                   </div>
                 </div>
               </div>
 
-              <div>
-                <Label>Objectifs du contrat *</Label>
-                <Textarea rows={3}
-                  value={formPrecontrat.objectifs}
-                  onChange={e => setFormPrecontrat({...formPrecontrat, objectifs: e.target.value})}
-                  placeholder="Décrivez les objectifs et livrables attendus..."
-                />
-              </div>
-              <div>
-                <Label>Budget final (FCFA) *</Label>
-                <Input type="number"
-                  value={formPrecontrat.budgetFinal || ''}
-                  onChange={e => setFormPrecontrat({...formPrecontrat, budgetFinal: Number(e.target.value)})}
-                />
-                <p className="text-xs text-muted-foreground mt-1">Budget du projet (montant pour le freelance)</p>
+              {/* Calcul commission 5% */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-[#3B82F6] rounded-lg p-4">
+                <p className="text-sm font-semibold text-[#1E3A8A] mb-3 flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" />
+                  Détails du paiement
+                </p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Budget du projet :</span>
+                    <span className="font-semibold">{payerProposition.montantPropose?.toLocaleString('fr-FR')} FCFA</span>
+                  </div>
+                  <div className="flex justify-between text-amber-700">
+                    <span>Commission plateforme (5%) :</span>
+                    <span className="font-semibold">+ {((payerProposition.montantPropose || 0) * 0.05).toLocaleString('fr-FR')} FCFA</span>
+                  </div>
+                  <Separator className="my-2" />
+                  <div className="flex justify-between text-lg font-bold text-[#1E3A8A]">
+                    <span>Total à payer :</span>
+                    <span>{((payerProposition.montantPropose || 0) * 1.05).toLocaleString('fr-FR')} FCFA</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+                  <Shield className="w-3 h-3" />
+                  Ce montant sera débité de votre solde et mis en séquestre
+                </p>
               </div>
 
-              {/* Calcul commission 5% */}
-              {formPrecontrat.budgetFinal > 0 && (
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-[#3B82F6] rounded-lg p-4">
-                  <p className="text-sm font-semibold text-[#1E3A8A] mb-3 flex items-center gap-2">
-                    <DollarSign className="w-4 h-4" />
-                    Détails du paiement
-                  </p>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Budget du projet :</span>
-                      <span className="font-semibold">{formPrecontrat.budgetFinal.toLocaleString('fr-FR')} FCFA</span>
-                    </div>
-                    <div className="flex justify-between text-amber-700">
-                      <span>Commission plateforme (5%) :</span>
-                      <span className="font-semibold">+ {(formPrecontrat.budgetFinal * 0.05).toLocaleString('fr-FR')} FCFA</span>
-                    </div>
-                    <Separator className="my-2" />
-                    <div className="flex justify-between text-lg font-bold text-[#1E3A8A]">
-                      <span>Total à payer :</span>
-                      <span>{(formPrecontrat.budgetFinal * 1.05).toLocaleString('fr-FR')} FCFA</span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
-                    <Shield className="w-3 h-3" />
-                    Ce montant sera débité de votre solde et mis en séquestre
-                  </p>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Date de début *</Label>
-                  <Input type="date"
-                    value={formPrecontrat.dateDebut}
-                    onChange={e => setFormPrecontrat({...formPrecontrat, dateDebut: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label>Date de fin *</Label>
-                  <Input type="date"
-                    value={formPrecontrat.dateFin}
-                    onChange={e => setFormPrecontrat({...formPrecontrat, dateFin: e.target.value})}
-                  />
-                </div>
-              </div>
+              {/* Mode de paiement */}
               <div>
-                <Label>Clauses particulières (optionnel)</Label>
-                <Textarea rows={2}
-                  value={formPrecontrat.clauses}
-                  onChange={e => setFormPrecontrat({...formPrecontrat, clauses: e.target.value})}
-                  placeholder="Conditions spécifiques, modalités de résiliation, etc."
-                />
+                <Label>Mode de paiement *</Label>
+                <Select value={formPrecontrat.modePaiement} onValueChange={(v) => setFormPrecontrat({...formPrecontrat, modePaiement: v})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un mode de paiement" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                    <SelectItem value="virement">Virement bancaire</SelectItem>
+                    <SelectItem value="carte">Carte bancaire</SelectItem>
+                    <SelectItem value="especes">Espèces</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Upload justificatif de paiement */}
@@ -2452,9 +2505,8 @@ function ClientCandidatures() {
                 <div>
                   <p className="font-semibold">⚠️ Important</p>
                   <p className="mt-1">
-                    Le montant total de {formPrecontrat.budgetFinal > 0 ? (formPrecontrat.budgetFinal * 1.05).toLocaleString('fr-FR') : '0'} FCFA 
-                    (budget {formPrecontrat.budgetFinal.toLocaleString('fr-FR')} FCFA + commission 5%) sera mis en séquestre.
-                    L'administrateur validera le paiement après vérification du justificatif.
+                    Le montant total de {((payerProposition.montantPropose || 0) * 1.05).toLocaleString('fr-FR')} FCFA 
+                    sera mis en séquestre. L'administrateur validera le paiement après vérification du justificatif.
                   </p>
                 </div>
               </div>
@@ -2481,10 +2533,13 @@ function FreelanceCandidatures() {
   const { user, setCurrentView } = useAppStore()
   const [propositions, setPropositions] = useState<any[]>([])
 
-  useEffect(() => {
+  const loadPropositions = useCallback(() => {
     if (!user) return
     fetch(`/api/propositions?freelanceId=${user.id}`).then(r => r.json()).then(d => setPropositions(Array.isArray(d) ? d : (d?.data || [])))
   }, [user])
+
+  useEffect(() => { loadPropositions() }, [loadPropositions])
+  useAutoRefresh(loadPropositions, 5000, !!user)
 
   return (
     <div className="space-y-4">
@@ -2719,6 +2774,17 @@ function ContratDetailCard({ contrat, user, telechargerContrat, loadContrats }: 
             <Eye className="w-4 h-4 mr-1" /> Voir en ligne
           </Button>
 
+          {/* Bouton gérer les tâches (Kanban) - Disponible pour client ET freelance */}
+          {c.statut === 'actif' && (
+            <Button 
+              size="sm" 
+              className="bg-purple-600 hover:bg-purple-700" 
+              onClick={() => window.location.href = `/contrats/${c.id}/taches`}
+            >
+              <ListChecks className="w-4 h-4 mr-1" /> Gérer les tâches
+            </Button>
+          )}
+
           {/* Bouton envoyer feuille de route pour le freelance */}
           {user?.role === 'freelance' && !feuilleRoute && c.statut === 'actif' && (
             <Button size="sm" variant="outline" className="border-[#3B82F6] text-[#3B82F6]" onClick={() => setShowFeuilleRoute(true)}>
@@ -2827,13 +2893,26 @@ function ContratsPage() {
 
   const loadContrats = useCallback(() => {
     if (!user) return
-    const params = user.role === 'client' ? `clientId=${user.id}` : `freelanceId=${user.id}`
-    fetch(`/api/contrats?${params}&includePrecontrats=true`).then(r => r.json()).then(d => setContrats(Array.isArray(d) ? d : (d?.data || [])))
+    console.log('[ContratsPage] Chargement des contrats pour:', user.role, user.id)
+    fetch(`/api/contrats?includePrecontrats=true`)
+      .then(r => {
+        console.log('[ContratsPage] Statut réponse:', r.status)
+        return r.json()
+      })
+      .then(d => {
+        console.log('[ContratsPage] Données reçues:', d)
+        const liste = Array.isArray(d) ? d : (d?.data || [])
+        console.log('[ContratsPage] Nombre de contrats:', liste.length)
+        setContrats(liste)
+      })
+      .catch(err => console.error('[ContratsPage] Erreur:', err))
   }, [user])
 
   useEffect(() => {
     loadContrats()
   }, [loadContrats])
+
+  useAutoRefresh(loadContrats, 5000, !!user)
 
   const genererPrecontrat = async () => {
     const res = await fetch('/api/contrats', {
@@ -2848,15 +2927,46 @@ function ContratsPage() {
   }
 
   const validerPrecontrat = async (precontratId: string, valide: boolean) => {
-    const res = await fetch('/api/contrats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'valider_precontrat', precontratId, freelanceId: user?.id, valide, jalonsData: [] })
-    })
-    const data = await res.json()
-    if (data.erreur) { toast.error(data.erreur); return }
-    toast.success(valide ? 'Contrat signé ! Vous pouvez le télécharger.' : 'Précontrat refusé')
-    loadContrats()
+    console.log('[validerPrecontrat] Début validation, precontratId:', precontratId, 'valide:', valide)
+    
+    try {
+      const res = await fetch('/api/contrats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'valider_precontrat', precontratId, freelanceId: user?.id, valide, jalonsData: [] })
+      })
+      
+      console.log('[validerPrecontrat] Status réponse:', res.status)
+      
+      if (!res.ok) {
+        const errorText = await res.text()
+        console.error('[validerPrecontrat] Erreur HTTP:', res.status, errorText)
+        toast.error(`Erreur ${res.status}: ${errorText}`)
+        return
+      }
+      
+      const data = await res.json()
+      console.log('[validerPrecontrat] Réponse:', data)
+      
+      if (data.erreur || data.message?.includes('Non autorisé') || data.message?.includes('doit être validé')) { 
+        console.error('[validerPrecontrat] Erreur:', data.erreur || data.message)
+        toast.error(data.erreur || data.message)
+        return 
+      }
+      
+      if (valide && data.contrat) {
+        console.log('[validerPrecontrat] Contrat créé:', data.contrat)
+        toast.success('Contrat signé et généré ! Numéro: ' + data.contrat.numero_contrat + '. Vous pouvez le télécharger.')
+      } else {
+        toast.success(valide ? 'Contrat signé ! Vous pouvez le télécharger.' : 'Précontrat refusé')
+      }
+      
+      console.log('[validerPrecontrat] Rechargement des contrats...')
+      loadContrats()
+    } catch (error) {
+      console.error('[validerPrecontrat] Exception:', error)
+      toast.error('Erreur lors de la validation: ' + (error as Error).message)
+    }
   }
 
   const telechargerContrat = async (contrat: any) => {
@@ -2889,12 +2999,14 @@ function ContratsPage() {
 
   // Séparer les contrats signés et les précontrats en attente
   const contratsSignes = contrats.filter(c => !c.type || c.type !== 'precontrat')
-  const precontrats = contrats.filter(c => c.type === 'precontrat')
+  const precontrats = contrats.filter(c => c.type === 'precontrat' && c.statut !== 'signe') // Ne pas afficher les précontrats signés dans la section précontrats
 
   const statutPrecontratLabels: any = {
     en_attente_paiement: { label: 'En attente de validation paiement', color: 'bg-amber-100 text-amber-700', desc: 'L\'administrateur doit valider le paiement' },
+    en_attente_signature: { label: 'En attente de signature', color: 'bg-blue-100 text-blue-700', desc: 'Le freelance doit signer le précontrat' },
     genere: { label: 'En attente de validation freelance', color: 'bg-blue-100 text-blue-700', desc: 'Le freelance doit valider ou refuser' },
     valide_freelance: { label: 'Validé - contrat généré', color: 'bg-green-100 text-green-700', desc: 'Contrat signé et disponible' },
+    signe: { label: 'Signé - contrat généré', color: 'bg-green-100 text-green-700', desc: 'Contrat signé et disponible' },
     refuse_freelance: { label: 'Refusé par le freelance', color: 'bg-red-100 text-red-700', desc: 'Le freelance a refusé le précontrat' },
     expire: { label: 'Expiré', color: 'bg-gray-100 text-gray-700', desc: 'Le précontrat a expiré' },
   }
@@ -2917,6 +3029,7 @@ function ContratsPage() {
           </h2>
           <div className="grid gap-3">
             {precontrats.map(pc => {
+              console.log('[PrecontratCard] Affichage précontrat:', pc.id, 'Statut:', pc.statut, 'Role user:', user?.role)
               const statutInfo = statutPrecontratLabels[pc.statut] || { label: pc.statut, color: 'bg-gray-100', desc: '' }
               return (
                 <Card key={pc.id} className="border-l-4 border-l-[#3B82F6]">
@@ -2970,12 +3083,26 @@ function ContratsPage() {
                     </div>
 
                     {/* Actions pour le freelance : valider/refuser */}
-                    {pc.statut === 'genere' && user?.role === 'freelance' && (
+                    {(pc.statut === 'genere' || pc.statut === 'en_attente_signature') && user?.role === 'freelance' && (
                       <div className="border-t pt-3 flex flex-wrap gap-2">
-                        <Button size="sm" className="bg-green-600" onClick={() => validerPrecontrat(pc.id, true)}>
+                        <Button 
+                          size="sm" 
+                          className="bg-green-600 hover:bg-green-700" 
+                          onClick={() => {
+                            console.log('[CLICK] Bouton Valider cliqué pour précontrat:', pc.id)
+                            validerPrecontrat(pc.id, true)
+                          }}
+                        >
                           <CheckCircle className="w-4 h-4 mr-1" /> Valider et signer le contrat
                         </Button>
-                        <Button size="sm" variant="destructive" onClick={() => validerPrecontrat(pc.id, false)}>
+                        <Button 
+                          size="sm" 
+                          variant="destructive" 
+                          onClick={() => {
+                            console.log('[CLICK] Bouton Refuser cliqué pour précontrat:', pc.id)
+                            validerPrecontrat(pc.id, false)
+                          }}
+                        >
                           <XCircle className="w-4 h-4 mr-1" /> Refuser
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => window.open(`/api/contrats/pdf?id=${pc.id}`, '_blank')}>
@@ -2985,7 +3112,7 @@ function ContratsPage() {
                     )}
 
                     {/* Bouton voir pour le client */}
-                    {pc.statut === 'genere' && user?.role === 'client' && (
+                    {(pc.statut === 'genere' || pc.statut === 'en_attente_signature') && user?.role === 'client' && (
                       <div className="border-t pt-3">
                         <Button size="sm" variant="outline" onClick={() => window.open(`/api/contrats/pdf?id=${pc.id}`, '_blank')}>
                           <Eye className="w-4 h-4 mr-1" /> Voir le précontrat
@@ -3004,6 +3131,21 @@ function ContratsPage() {
                           Votre paiement est en attente de validation par l'administrateur.
                           Le précontrat sera visible par le freelance dès validation.
                         </p>
+                      </div>
+                    )}
+
+                    {/* Contrat signé - Téléchargement disponible */}
+                    {pc.statut === 'signe' && (
+                      <div className="border-t pt-3 bg-green-50 -mx-4 -mb-4 p-3 rounded-b-lg">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-green-800 flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4" />
+                            Précontrat signé ! Le contrat final est maintenant disponible.
+                          </p>
+                          <Button size="sm" className="bg-green-600" onClick={() => telechargerContrat(pc)}>
+                            <Download className="w-4 h-4 mr-1" /> Télécharger
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </CardContent>
@@ -3055,16 +3197,33 @@ function JalonsPage() {
   const [viewMode, setViewMode] = useState<'kanban' | 'historique'>('kanban')
   const [commentaireRefus, setCommentaireRefus] = useState('')
 
-  useEffect(() => {
+  const loadContrats = useCallback(() => {
     if (!user) return
-    const params = user.role === 'client' ? `clientId=${user.id}` : `freelanceId=${user.id}`
-    fetch(`/api/contrats?${params}`).then(r => r.json()).then(d => setContrats(Array.isArray(d) ? d : (d?.data || [])))
+    console.log('[JalonsPage] Chargement des contrats pour:', user.role, user.id)
+    fetch(`/api/contrats?includePrecontrats=false`)
+      .then(r => {
+        console.log('[JalonsPage] Statut réponse:', r.status)
+        return r.json()
+      })
+      .then(d => {
+        console.log('[JalonsPage] Données reçues:', d)
+        const liste = Array.isArray(d) ? d : (d?.data || [])
+        console.log('[JalonsPage] Nombre de contrats:', liste.length)
+        setContrats(liste)
+      })
+      .catch(err => console.error('[JalonsPage] Erreur:', err))
   }, [user])
 
-  useEffect(() => {
+  const loadJalons = useCallback(() => {
     if (!selectedContrat) return
     fetch(`/api/jalons?contratId=${selectedContrat}`).then(r => r.json()).then(d => setJalons(Array.isArray(d) ? d : (d?.data || [])))
   }, [selectedContrat])
+
+  useEffect(() => { loadContrats() }, [loadContrats])
+  useEffect(() => { loadJalons() }, [loadJalons])
+
+  useAutoRefresh(loadContrats, 5000, !!user)
+  useAutoRefresh(loadJalons, 5000, !!selectedContrat)
 
   const updateJalon = async (id: string, action: string, extra?: any) => {
     const res = await fetch('/api/jalons', {
@@ -3279,20 +3438,25 @@ function MessageriePage() {
 
   const isAdmin = user?.role === 'administrateur'
 
-  useEffect(() => {
+  const loadConversations = useCallback(() => {
     if (!user) return
     fetch(`/api/messagerie?utilisateurId=${user.id}`).then(r => r.json()).then(d => setConversations(Array.isArray(d) ? d : (d?.data || [])))
-    
     // Si admin, charger tous les utilisateurs pour pouvoir leur écrire
     if (isAdmin) {
       fetch('/api/admin?type=utilisateurs').then(r => r.json()).then(d => setAllUsers(Array.isArray(d) ? d : (d?.data || [])))
     }
   }, [user, isAdmin])
 
-  useEffect(() => {
+  const loadMessages = useCallback(() => {
     if (!selectedConv) return
     fetch(`/api/messagerie?conversationId=${selectedConv}`).then(r => r.json()).then(d => setMessages(Array.isArray(d) ? d : (d?.data || [])))
   }, [selectedConv])
+
+  useEffect(() => { loadConversations() }, [loadConversations])
+  useEffect(() => { loadMessages() }, [loadMessages])
+
+  useAutoRefresh(loadConversations, 5000, !!user)
+  useAutoRefresh(loadMessages, 3000, !!selectedConv)
 
   const envoyer = async () => {
     if (!newMessage.trim() || !selectedConv || sending) return
@@ -3624,10 +3788,13 @@ function PortefeuillePage() {
   const [portefeuille, setPortefeuille] = useState<any>(null)
   const [depotAmount, setDepotAmount] = useState(0)
 
-  useEffect(() => {
+  const loadPortefeuille = useCallback(() => {
     if (!user) return
     fetch(`/api/portefeuille?utilisateurId=${user.id}`).then(r => r.json()).then(d => { if (!d.erreur) setPortefeuille(d?.portefeuille || d) })
   }, [user])
+
+  useEffect(() => { loadPortefeuille() }, [loadPortefeuille])
+  useAutoRefresh(loadPortefeuille, 5000, !!user)
 
   const deposer = async () => {
     if (!depotAmount || depotAmount <= 0) {
@@ -3765,7 +3932,7 @@ function EvaluationsPage() {
   const [showEval, setShowEval] = useState<string | null>(null)
   const [form, setForm] = useState({ noteGlobale: 5, qualite: 5, communication: 5, delais: 5, professionnalisme: 5, commentaire: '' })
 
-  useEffect(() => {
+  const loadEvaluations = useCallback(() => {
     if (!user) return
     fetch(`/api/evaluations?evalueId=${user.id}`).then(r => r.json()).then(d => setEvaluations(Array.isArray(d) ? d : (d?.data || [])))
     const params = user.role === 'client' ? `clientId=${user.id}` : `freelanceId=${user.id}`
@@ -3773,6 +3940,9 @@ function EvaluationsPage() {
       setContratsTermines((Array.isArray(d) ? d : (d?.data || [])).filter((c: any) => c.statut === 'termine'))
     })
   }, [user])
+
+  useEffect(() => { loadEvaluations() }, [loadEvaluations])
+  useAutoRefresh(loadEvaluations, 5000, !!user)
 
   const submitEval = async (contratId: string, evalueId: string) => {
     await fetch('/api/evaluations', {
@@ -3880,6 +4050,8 @@ function ProfilPage() {
     loadProfil()
     fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : (d?.data || []))).catch(() => {})
   }, [loadProfil])
+
+  useAutoRefresh(loadProfil, 10000, !!user)
 
   const saveProfil = async () => {
     if (!user) return
@@ -4367,8 +4539,8 @@ function ProfilPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-3 text-center bg-gray-50 p-3 rounded">
-                  <div><p className="text-sm text-muted-foreground">Score fiabilité</p><p className="text-xl font-bold text-[#3B82F6]">{profil.profilFreelance.scoreFiabilite?.toFixed(1)}/5</p></div>
-                  <div><p className="text-sm text-muted-foreground">Taux complétion</p><p className="text-xl font-bold text-green-600">{profil.profilFreelance.tauxCompletion?.toFixed(0)}%</p></div>
+                  <div><p className="text-sm text-muted-foreground">Score fiabilité</p><p className="text-xl font-bold text-[#3B82F6]">{Number(profil.profilFreelance.scoreFiabilite || 0).toFixed(1)}/5</p></div>
+                  <div><p className="text-sm text-muted-foreground">Taux complétion</p><p className="text-xl font-bold text-green-600">{Number(profil.profilFreelance.tauxCompletion || 0).toFixed(0)}%</p></div>
                   <div><p className="text-sm text-muted-foreground">Projets réalisés</p><p className="text-xl font-bold text-[#1E3A8A]">{profil.profilFreelance.nombreProjets}</p></div>
                 </div>
               </>
@@ -4588,36 +4760,59 @@ function AdminValidationPaiements() {
   const [transactions, setTransactions] = useState<any[]>([])
   const [filtreStatut, setFiltreStatut] = useState<string>('en_attente')
   const [justificatifModal, setJustificatifModal] = useState<any>(null)
+  const [processing, setProcessing] = useState<string | null>(null) // ID de la transaction en cours de traitement
 
-  useEffect(() => {
+  const loadTransactions = useCallback(() => {
     const endpoint = filtreStatut === 'en_attente' ? 'transactions_en_attente' : 'transactions'
     fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : (d?.data || [])))
   }, [filtreStatut])
 
+  useEffect(() => { loadTransactions() }, [loadTransactions])
+  useAutoRefresh(loadTransactions, 5000)
+
   const valider = async (transaction: any, action: string, motif?: string) => {
+    // Empêcher les doubles clics
+    if (processing === transaction.id) return
+    setProcessing(transaction.id)
+
     const utilisateurId = transaction?.portefeuille?.utilisateur?.id
     if (!utilisateurId) {
       toast.error('Impossible de déterminer le propriétaire du portefeuille')
+      setProcessing(null)
       return
     }
 
     if (action === 'refuser_transaction' && !motif) {
       const saisieMotif = prompt('Motif du refus (obligatoire) :')
-      if (!saisieMotif?.trim()) return
+      if (!saisieMotif?.trim()) {
+        setProcessing(null)
+        return
+      }
       motif = saisieMotif
     }
 
-    const res = await fetch('/api/portefeuille', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, utilisateurId, transactionId: transaction.id, motif })
-    })
-    const data = await res.json()
-    if (data.erreur) { toast.error(data.erreur); return }
-    toast.success(action === 'valider_transaction' ? 'Transaction validée' : 'Transaction refusée')
-    
-    const endpoint = filtreStatut === 'en_attente' ? 'transactions_en_attente' : 'transactions'
-    fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : (d?.data || [])))
+    try {
+      const res = await fetch('/api/portefeuille', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, utilisateurId, transactionId: transaction.id, motif })
+      })
+      const data = await res.json()
+      if (data.erreur) { 
+        toast.error(data.erreur)
+      } else {
+        toast.success(action === 'valider_transaction' ? 'Transaction validée' : 'Transaction refusée')
+        // Recharger les transactions après un court délai
+        setTimeout(() => {
+          const endpoint = filtreStatut === 'en_attente' ? 'transactions_en_attente' : 'transactions'
+          fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : (d?.data || [])))
+        }, 500)
+      }
+    } catch (error) {
+      toast.error('Erreur lors du traitement de la transaction')
+    } finally {
+      setProcessing(null)
+    }
   }
 
   const voirJustificatif = (transaction: any) => {
@@ -4745,12 +4940,22 @@ function AdminValidationPaiements() {
                           {t.statut === 'en_attente' && (
                             <>
                               <Button size="sm" variant="ghost" title="Valider le paiement"
-                                onClick={() => valider(t, 'valider_transaction')}>
-                                <CheckCircle className="w-4 h-4 text-green-600" />
+                                onClick={() => valider(t, 'valider_transaction')}
+                                disabled={processing === t.id}>
+                                {processing === t.id ? (
+                                  <span className="animate-spin">⏳</span>
+                                ) : (
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                )}
                               </Button>
                               <Button size="sm" variant="ghost" title="Refuser le paiement"
-                                onClick={() => valider(t, 'refuser_transaction')}>
-                                <XCircle className="w-4 h-4 text-red-600" />
+                                onClick={() => valider(t, 'refuser_transaction')}
+                                disabled={processing === t.id}>
+                                {processing === t.id ? (
+                                  <span className="animate-spin">⏳</span>
+                                ) : (
+                                  <XCircle className="w-4 h-4 text-red-600" />
+                                )}
                               </Button>
                             </>
                           )}
@@ -4825,9 +5030,12 @@ function LitigesPage() {
   const [showNew, setShowNew] = useState(false)
   const [form, setForm] = useState({ contratId: '', jalonId: '', motif: '', defendeurId: '' })
 
-  useEffect(() => {
+  const loadLitiges = useCallback(() => {
     fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : (d?.data || [])))
   }, [])
+
+  useEffect(() => { loadLitiges() }, [loadLitiges])
+  useAutoRefresh(loadLitiges, 5000)
 
   const ouvrirLitige = async () => {
     await fetch('/api/litiges', {
@@ -4917,13 +5125,16 @@ function AdminUtilisateurs() {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 15
 
-  useEffect(() => {
+  const loadUtilisateurs = useCallback(() => {
     fetch('/api/admin?type=utilisateurs').then(r => r.json()).then(d => {
       const users = Array.isArray(d) ? d : (d?.data || [])
       setUtilisateurs(users)
       setFilteredUsers(users)
     })
   }, [])
+
+  useEffect(() => { loadUtilisateurs() }, [loadUtilisateurs])
+  useAutoRefresh(loadUtilisateurs, 10000)
 
   // Recherche utilisateur
   useEffect(() => {

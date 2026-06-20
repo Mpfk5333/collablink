@@ -11,9 +11,23 @@ export async function POST(request: NextRequest) {
   const body = await request.clone().json().catch(() => ({}))
   const { action } = body
 
+  if (action === 'payer_precontrat_existant') {
+    // Nouveau flow : le précontrat n'existe pas encore, on paie pour une proposition
+    const { propositionId, justificatifUrl, modePaiement } = body
+    
+    // Soumettre le paiement directement avec la proposition_id
+    // Le précontrat sera créé par le backend après validation admin
+    const paiementRes = await laravelRequest(request, `/propositions/${propositionId}/payer`, {
+      method: 'POST',
+      body: { justificatif_url: justificatifUrl, mode_paiement: modePaiement },
+    })
+
+    return paiementRes
+  }
+
   if (action === 'payer_et_generer_precontrat') {
-    // Génère précontrat + soumet paiement
-    const { propositionId, objectifs, budgetFinal, dateDebut, dateFin, clauses } = body
+    // ANCIENNE VERSION - Génère précontrat + soumet paiement (deprecated)
+    const { propositionId, objectifs, budgetFinal, dateDebut, dateFin, clauses, justificatifUrl, modePaiement } = body
     // 1) Génère le précontrat
     const precontratRes = await laravelRequest(request, `/propositions/${propositionId}/precontrat`, {
       method: 'POST',
@@ -22,12 +36,12 @@ export async function POST(request: NextRequest) {
     const precontratData = await precontratRes.json().catch(() => ({}))
     if (!precontratRes.ok) return precontratRes
 
-    // 2) Soumet le paiement (justificatif = virement manuel)
+    // 2) Soumet le paiement avec justificatif uploadé
     const precontratId = precontratData?.precontrat?.id
-    if (precontratId) {
+    if (precontratId && justificatifUrl) {
       await laravelRequest(request, `/precontrats/${precontratId}/payer`, {
         method: 'POST',
-        body: { justificatif_url: 'virement_manuel', mode_paiement: 'virement' },
+        body: { justificatif_url: justificatifUrl, mode_paiement: modePaiement || 'mobile_money' },
       })
     }
 

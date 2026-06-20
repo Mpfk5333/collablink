@@ -97,6 +97,9 @@ export async function laravelRequest(
         // Body might be empty
       }
     }
+  } else if (body !== undefined && typeof body === 'object' && !(body instanceof FormData)) {
+    // Convert camelCase keys to snake_case when body is passed directly via options.body
+    body = keysToSnake(body)
   }
 
   let url = `${LARAVEL_API_URL}${path}`
