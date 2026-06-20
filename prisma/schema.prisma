@@ -1,0 +1,495 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// MODULE 1 — Authentification et gestion du compte
+// ============================================================
+
+model Utilisateur {
+  id                String    @id @default(cuid())
+  nom               String
+  prenom            String
+  email             String    @unique
+  motDePasse        String
+  role              String    // client, freelance, administrateur
+  telephone         String?
+  pays              String?
+  signatureUrl      String?   // image PNG/JPG de la signature numérique
+  estActif          Boolean   @default(true)
+  photoUrl          String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  profilClient      ProfilClient?
+  profilFreelance   ProfilFreelance?
+  portefeuille      Portefeuille?
+  projetsPublies    Projet[]           @relation("ProjetsClient")
+  propositions      Proposition[]
+  contratsClient    Contrat[]          @relation("ContratsClient")
+  evaluationsDonnees Evaluation[]      @relation("Evaluateur")
+  evaluationsRecues  Evaluation[]      @relation("Evalue")
+  notifications     Notification[]
+  conversations     ConversationParticipant[]
+  recommandations   RecommandationIA[]
+  propositionsIA    PropositionIA[]
+  feuillesRoute     FeuilleRoute[]
+  contratsFreelance Contrat[]          @relation("ContratsFreelance")
+  messagesEnvoyes   Message[]          @relation("MessagesExpediteur")
+  litigesOuverts    Litige[]           @relation("Plaignant")
+  litigesDefense    Litige[]           @relation("Defendeur")
+  journauxActivite  JournalActivite[]
+}
+
+model ProfilClient {
+  id                String    @id @default(cuid())
+  utilisateurId     String    @unique
+  type              String    // particulier, entreprise
+  nomEntreprise     String?
+  secteurActivite   String?
+  domainesProjets   String?   // JSON array de domaines
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  utilisateur       Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+}
+
+model CategorieCompetence {
+  id                String    @id @default(cuid())
+  nom               String
+  createdAt         DateTime  @default(now())
+
+  competences       Competence[]
+}
+
+model Competence {
+  id                String    @id @default(cuid())
+  nom               String
+  categorieId       String
+  createdAt         DateTime  @default(now())
+
+  categorie         CategorieCompetence @relation(fields: [categorieId], references: [id])
+  freelanceCompetences FreelanceCompetence[]
+  projetCompetences     ProjetCompetence[]
+}
+
+model ProfilFreelance {
+  id                String    @id @default(cuid())
+  utilisateurId     String    @unique
+  titreProfessionnel String
+  bio               String?
+  tarif             Float?
+  anneesExperience  Int?
+  lienLinkedIn      String?
+  lienGitHub        String?
+  lienPortfolio     String?
+  scoreFiabilite    Float     @default(0)
+  tauxCompletion    Float     @default(0)
+  respectDelais     Float     @default(0)
+  nombreProjets     Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  utilisateur       Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  competences       FreelanceCompetence[]
+  experiences       ExperienceProfessionnelle[]
+}
+
+model FreelanceCompetence {
+  id                String    @id @default(cuid())
+  profilFreelanceId String
+  competenceId      String
+  niveau            String    // debutant, intermediaire, avance, expert
+
+  profilFreelance   ProfilFreelance @relation(fields: [profilFreelanceId], references: [id], onDelete: Cascade)
+  competence        Competence      @relation(fields: [competenceId], references: [id])
+
+  @@unique([profilFreelanceId, competenceId])
+}
+
+model ExperienceProfessionnelle {
+  id                String    @id @default(cuid())
+  profilFreelanceId String
+  poste             String
+  entreprise        String
+  dateDebut         DateTime
+  dateFin           DateTime?
+  description       String?
+  createdAt         DateTime  @default(now())
+
+  profilFreelance   ProfilFreelance @relation(fields: [profilFreelanceId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// MODULE 3 — Publication et gestion de projet (Client)
+// ============================================================
+
+model Projet {
+  id                String    @id @default(cuid())
+  clientId          String
+  titre             String
+  description       String
+  budgetEstime      Float
+  delaiLivraison    DateTime
+  typeContrat       String?   // forfait, regie
+  cahierChargesUrl  String?   // PDF obligatoire pour publier
+  statut            String    @default("brouillon") // brouillon, publie, en_analyse_ia, en_recrutement, en_cours, en_litige, termine, annule
+  datePublication   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  client            Utilisateur      @relation("ProjetsClient", fields: [clientId], references: [id])
+  competences       ProjetCompetence[]
+  recommandations   RecommandationIA[]
+  propositionsIA    PropositionIA[]
+  propositions      Proposition[]
+  precontrats       Precontrat[]
+  contrats          Contrat[]
+  espaceCollaboratif EspaceCollaboratif?
+
+  @@map("projets")
+}
+
+model ProjetCompetence {
+  id                String    @id @default(cuid())
+  projetId          String
+  competenceId      String
+
+  projet            Projet     @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  competence        Competence @relation(fields: [competenceId], references: [id])
+
+  @@unique([projetId, competenceId])
+}
+
+model RecommandationIA {
+  id                String    @id @default(cuid())
+  projetId          String
+  freelanceId       String
+  scoreCorrespondance Float
+  notifie           Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+
+  projet            Projet     @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  freelance         Utilisateur @relation(fields: [freelanceId], references: [id])
+}
+
+// ============================================================
+// NOUVEAU : Proposition IA - proposition initiée par un freelance
+// suite à une recommandation IA ou via la recherche de freelances
+// ("Faire une proposition").
+// 3 actions possibles côté client : negocier / valider / refuser
+// ============================================================
+model PropositionIA {
+  id                String    @id @default(cuid())
+  projetId          String
+  freelanceId       String
+  source            String    @default("recherche_freelance") // recommandation_ia, recherche_freelance
+  lettreMotivation  String?
+  montantPropose    Float
+  delaiPropose      DateTime
+  statut            String    @default("en_attente") // en_attente, negociation, validee, refusee, expire
+  // Négociation
+  montantNegocie    Float?
+  delaiNegocie      DateTime?
+  motifRefus        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  projet            Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  freelance         Utilisateur @relation(fields: [freelanceId], references: [id])
+
+  @@map("proposition_ia")
+}
+
+
+// ============================================================
+// MODULE 4 — Candidature (Freelance)
+// ============================================================
+
+model Proposition {
+  id                String    @id @default(cuid())
+  projetId          String
+  freelanceId       String
+  lettreMotivation  String
+  montantPropose    Float
+  delaiPropose      DateTime
+  statut            String    @default("en_attente") // en_attente, acceptee, refusee
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  projet            Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  freelance        Utilisateur @relation(fields: [freelanceId], references: [id])
+  precontrats      Precontrat[]
+
+  @@unique([projetId, freelanceId])
+}
+
+// ============================================================
+// MODULE 5 — Sélection, paiement et validation administrative
+// ============================================================
+
+model Portefeuille {
+  id                String    @id @default(cuid())
+  utilisateurId     String    @unique
+  solde             Float     @default(0)
+  soldeSequestre    Float     @default(0)
+  totalDepose       Float     @default(0)
+  totalRetire       Float     @default(0)
+  totalGagne        Float     @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  utilisateur       Utilisateur  @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  transactions      Transaction[]
+}
+
+model Transaction {
+  id                String    @id @default(cuid())
+  portefeuilleId    String
+  type              String    // depot, retrait, mise_en_sequestre, liberation_jalon, commission_plateforme, remboursement
+  montant           Float
+  reference         String    @unique
+  statut            String    @default("en_attente") // en_attente, validee, echouee
+  jalonId           String?
+  contratId         String?
+  description       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  portefeuille      Portefeuille @relation(fields: [portefeuilleId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// MODULE 6 — Contrat et signature
+// ============================================================
+
+model Precontrat {
+  id                String    @id @default(cuid())
+  projetId          String
+  propositionId     String
+  objectifs         String
+  budgetFinal       Float
+  dateDebut         DateTime
+  dateFin           DateTime
+  clauses           String?
+  statut            String    @default("genere") // genere, valide_freelance, refuse_freelance, expire, signe
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  projet            Projet      @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  proposition       Proposition @relation(fields: [propositionId], references: [id])
+  contrat           Contrat?
+}
+
+model Contrat {
+  id                String    @id @default(cuid())
+  precontratId      String    @unique
+  projetId          String
+  clientId          String
+  freelanceId       String
+  numeroContrat     String    @unique // CTR-AAAA-NNNNNN
+  montantTotal      Float
+  contratPdfUrl     String?
+  statut            String    @default("actif") // actif, resilie, termine
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  precontrat        Precontrat   @relation(fields: [precontratId], references: [id])
+  projet            Projet       @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  client            Utilisateur  @relation("ContratsClient", fields: [clientId], references: [id])
+  freelance         Utilisateur  @relation("ContratsFreelance", fields: [freelanceId], references: [id])
+  jalons            Jalon[]
+  evaluations       Evaluation[]
+  litiges           Litige[]
+  feuilleRoute      FeuilleRoute?
+}
+
+// ============================================================
+// MODULE 7 — Exécution du projet par jalons
+// ============================================================
+
+// Feuille de route : document envoyé par le freelance au début du projet.
+// Contient les tâches + durées. Le client doit la valider pour débloquer les jalons.
+model FeuilleRoute {
+  id                String    @id @default(cuid())
+  contratId         String    @unique
+  freelanceId       String
+  titre             String
+  description       String?
+  fichierUrl        String?
+  contenuJson       String?   // JSON : liste des tâches + durées
+  statut            String    @default("en_attente") // en_attente, validee, refusee
+  motifRefus        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contrat           Contrat   @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  freelance         Utilisateur @relation(fields: [freelanceId], references: [id])
+  jalons            Jalon[]
+}
+
+model Jalon {
+  id                String    @id @default(cuid())
+  contratId         String
+  feuilleRouteId    String?
+  titre             String
+  description       String?
+  ordre             Int
+  dateEcheance      DateTime
+  livrableUrl       String?
+  dateSoumission    DateTime?
+  dateValidation    DateTime?
+  commentaireClient String?
+  statut            String    @default("a_faire") // a_faire, en_cours, livrable_soumis, valide, refuse, en_litige
+  creePar           String    @default("freelance") // freelance, client
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contrat           Contrat       @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  feuilleRoute      FeuilleRoute? @relation(fields: [feuilleRouteId], references: [id])
+  litiges           Litige[]
+}
+
+// ============================================================
+// MODULE 8 — Évaluations
+// ============================================================
+
+model Evaluation {
+  id                String    @id @default(cuid())
+  contratId         String
+  evaluateurId      String
+  evalueId          String
+  noteGlobale       Float     // 0 à 5
+  qualite           Float?
+  communication     Float?
+  delais            Float?
+  professionnalisme Float?
+  commentaire       String?
+  createdAt         DateTime  @default(now())
+
+  contrat           Contrat     @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  evaluateur        Utilisateur @relation("Evaluateur", fields: [evaluateurId], references: [id])
+  evalue            Utilisateur @relation("Evalue", fields: [evalueId], references: [id])
+
+  @@unique([contratId, evaluateurId])
+}
+
+// ============================================================
+// MODULE 9 — Messagerie
+// ============================================================
+
+model Conversation {
+  id                String    @id @default(cuid())
+  projetId          String
+  createdAt         DateTime  @default(now())
+
+  participants      ConversationParticipant[]
+  messages          Message[]
+}
+
+model ConversationParticipant {
+  id                String    @id @default(cuid())
+  conversationId    String
+  utilisateurId     String
+
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  utilisateur       Utilisateur  @relation(fields: [utilisateurId], references: [id])
+
+  @@unique([conversationId, utilisateurId])
+}
+
+model Message {
+  id                String    @id @default(cuid())
+  conversationId    String
+  expediteurId      String
+  contenu           String
+  pieceJointeUrl    String?
+  estSignale        Boolean   @default(false)
+  raisonSignalement String?
+  estLu             Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  expediteur        Utilisateur  @relation("MessagesExpediteur", fields: [expediteurId], references: [id])
+}
+
+// ============================================================
+// MODULE 10 — Notifications
+// ============================================================
+
+model Notification {
+  id                String    @id @default(cuid())
+  utilisateurId     String
+  type              String    // nouvelle_proposition, precontrat_genere, contrat_signe, jalon_valide, liberation_fonds, litige_ouvert, nouveau_message, recommandation_ia
+  titre             String
+  contenu           String
+  lienAction        String?
+  estLue            Boolean   @default(false)
+  dateLecture       DateTime?
+  createdAt         DateTime  @default(now())
+
+  utilisateur       Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// MODULE 11 — Litiges
+// ============================================================
+
+model Litige {
+  id                String    @id @default(cuid())
+  contratId         String
+  jalonId           String?
+  plaignantId       String
+  defendeurId       String
+  motif             String
+  preuves           String?   // JSON avec URLs des preuves
+  decision          String?   // remboursement_client, liberation_freelance, partage, classe_sans_suite
+  commentaireDecision String?
+  statut            String    @default("ouvert") // ouvert, en_arbitrage, resolu
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  contrat           Contrat     @relation(fields: [contratId], references: [id])
+  jalon             Jalon?      @relation(fields: [jalonId], references: [id])
+  plaignant         Utilisateur @relation("Plaignant", fields: [plaignantId], references: [id])
+  defendeur         Utilisateur @relation("Defendeur", fields: [defendeurId], references: [id])
+}
+
+// ============================================================
+// Tables transversales
+// ============================================================
+
+model Commission {
+  id                String    @id @default(cuid())
+  contratId         String
+  jalonId           String?
+  montant           Float
+  taux              Float     @default(0.05) // 5%
+  createdAt         DateTime  @default(now())
+}
+
+model EspaceCollaboratif {
+  id                String    @id @default(cuid())
+  projetId          String    @unique
+  nom               String
+  createdAt         DateTime  @default(now())
+
+  projet            Projet @relation(fields: [projetId], references: [id], onDelete: Cascade)
+}
+
+model JournalActivite {
+  id                String    @id @default(cuid())
+  utilisateurId     String?
+  action            String
+  entite            String?
+  entiteId          String?
+  details           String?
+  createdAt         DateTime  @default(now())
+
+  utilisateur       Utilisateur? @relation(fields: [utilisateurId], references: [id])
+}
