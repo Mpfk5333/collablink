@@ -655,7 +655,11 @@ function Navbar() {
       const res = await fetch(`/api/notifications?utilisateurId=${user.id}`)
       const data = await res.json()
       if (data.notifications) {
-        setNotifications(data.notifications)
+        // Laravel retourne une réponse paginée { data: [...], total: ... }
+        const notifArray = Array.isArray(data.notifications)
+          ? data.notifications
+          : (data.notifications.data || [])
+        setNotifications(notifArray)
         setNonLues(data.nonLues || 0)
       }
     } catch {}
@@ -669,7 +673,10 @@ function Navbar() {
         const res = await fetch(`/api/notifications?utilisateurId=${user.id}`)
         const data = await res.json()
         if (!cancelled && data.notifications) {
-          setNotifications(data.notifications)
+          const notifArray = Array.isArray(data.notifications)
+            ? data.notifications
+            : (data.notifications.data || [])
+          setNotifications(notifArray)
           setNonLues(data.nonLues || 0)
         }
       } catch {}
@@ -971,11 +978,12 @@ function ClientDashboard() {
       ])
       const projets = await projetsRes.json()
       const propositions = await propositionsRes.json()
-      const mesProjets = Array.isArray(projets) ? projets : []
+      const mesProjets = Array.isArray(projets) ? projets : (projets?.data || [])
+      const mesPropositions = Array.isArray(propositions) ? propositions : (propositions?.data || [])
       setStats({
         projets: mesProjets.length,
         enCours: mesProjets.filter((p: any) => p.statut === 'en_cours').length,
-        candidatures: Array.isArray(propositions) ? propositions.filter((p: any) => mesProjets.some((pr: any) => pr.id === p.projetId)).length : 0,
+        candidatures: mesPropositions.filter((p: any) => mesProjets.some((pr: any) => pr.id === p.projetId)).length,
         depenses: mesProjets.reduce((sum: number, p: any) => sum + (p.budgetEstime || 0), 0)
       })
     }
@@ -1001,7 +1009,23 @@ function ClientDashboard() {
         <StatCard icon={DollarSign} label="Budget total" value={`${stats.depenses.toLocaleString('fr-FR')} FCFA`} color="purple" />
       </div>
 
-      <QuickActionsClient />
+      <Card>
+        <CardHeader><CardTitle className="text-lg">Actions rapides</CardTitle></CardHeader>
+        <CardContent className="flex gap-3 flex-wrap">
+          <Button variant="outline" onClick={() => setCurrentView('projets')} className="border-[#3B82F6] text-[#3B82F6]">
+            <FolderKanban className="w-4 h-4 mr-2" /> Mes projets
+          </Button>
+          <Button variant="outline" onClick={() => setCurrentView('propositions')} className="border-[#3B82F6] text-[#3B82F6]">
+            <FileText className="w-4 h-4 mr-2" /> Candidatures reçues
+          </Button>
+          <Button variant="outline" onClick={() => setCurrentView('contrats')} className="border-[#3B82F6] text-[#3B82F6]">
+            <FileText className="w-4 h-4 mr-2" /> Mes contrats
+          </Button>
+          <Button variant="outline" onClick={() => setCurrentView('messagerie')} className="border-[#3B82F6] text-[#3B82F6]">
+            <MessageSquare className="w-4 h-4 mr-2" /> Messagerie
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -1023,12 +1047,14 @@ function FreelanceDashboard() {
       ])
       const projets = await projetsRes.json()
       const candidatures = await candidaturesRes.json()
-      const portefeuille = await portefeuilleRes.json()
+      const portefeuilleData = await portefeuilleRes.json()
+      const projetsArr = Array.isArray(projets) ? projets : (projets?.data || [])
+      const candidaturesArr = Array.isArray(candidatures) ? candidatures : (candidatures?.data || [])
       setStats({
-        disponibles: Array.isArray(projets) ? projets.length : 0,
-        candidatures: Array.isArray(candidatures) ? candidatures.length : 0,
-        enCours: Array.isArray(candidatures) ? candidatures.filter((c: any) => c.statut === 'acceptee').length : 0,
-        gains: portefeuille?.totalGagne || 0,
+        disponibles: projetsArr.length,
+        candidatures: candidaturesArr.length,
+        enCours: candidaturesArr.filter((c: any) => c.statut === 'acceptee').length,
+        gains: portefeuilleData?.portefeuille?.totalGagne || 0,
       })
     }
     fetchStats()
@@ -1075,7 +1101,22 @@ function AdminDashboard() {
   const [stats, setStats] = useState<any>({})
 
   useEffect(() => {
-    fetch('/api/admin?type=stats').then(r => r.json()).then(setStats)
+    fetch('/api/admin?type=stats').then(r => r.json()).then(d => {
+      // Laravel retourne { stats: { utilisateurs, clients, ... }, revenusCommission }
+      // On aplatit pour accès direct
+      const s = d?.stats || d
+      setStats({
+        totalUtilisateurs: s.utilisateurs || 0,
+        totalClients: s.clients || 0,
+        totalFreelances: s.freelances || 0,
+        totalProjets: s.projetsPublies || 0,
+        projetsEnCours: s.projetsEnCours || 0,
+        projetsTermines: s.projetsTermines || 0,
+        transactionsEnAttente: s.transactionsEnAttente || 0,
+        totalContrats: s.contratsActifs || 0,
+        litigesOuverts: s.litigesOuverts || 0,
+      })
+    })
   }, [])
 
   return (
@@ -1142,8 +1183,8 @@ function ClientProjets() {
 
   useEffect(() => {
     if (!user) return
-    fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => setProjets(Array.isArray(d) ? d : []))
-    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => setProjets(Array.isArray(d) ? d : (d?.data || [])))
+    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : (d?.data || []))).catch(() => {})
   }, [user])
 
   // Upload du cahier des charges (sélection de fichier depuis la machine, type pièces jointes WhatsApp)
@@ -1387,7 +1428,7 @@ function ClientProjets() {
       {/* Liste des projets filtrés */}
       <div className="grid gap-4">
         {projetsFiltres.length === 0 ? (
-          <Card><CardContent className="p-8 text-center text-muted-foreground">
+          <Card key="empty-state"><CardContent className="p-8 text-center text-muted-foreground">
             {projets.length === 0 ? 'Aucun projet. Créez votre premier projet !' : 'Aucun projet dans cette catégorie.'}
           </CardContent></Card>
         ) : projetsFiltres.map(p => (
@@ -1459,7 +1500,7 @@ function RechercherFreelancePage() {
 
   // Charger les compétences pour le filtre
   useEffect(() => {
-    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : (d?.data || []))).catch(() => {})
   }, [])
 
   // Recherche initiale sans filtre
@@ -1851,7 +1892,7 @@ function FairePropositionButton({ freelance, clientId }: { freelance: any; clien
     // Charger les projets publiés/en recrutement du client
     fetch(`/api/projets?clientId=${clientId}`)
       .then(r => r.json())
-      .then(d => setProjets((Array.isArray(d) ? d : []).filter((p: any) => ['publie', 'en_recrutement'].includes(p.statut))))
+      .then(d => setProjets((Array.isArray(d) ? d : (d?.data || [])).filter((p: any) => ['publie', 'en_recrutement'].includes(p.statut))))
       .catch(() => {})
   }, [open, clientId])
 
@@ -1949,7 +1990,7 @@ function FreelanceProjetsDispo() {
   const [form, setForm] = useState({ montantPropose: 0, delaiPropose: '' })
 
   useEffect(() => {
-    fetch(`/api/projets?statut=publie`).then(r => r.json()).then(d => setProjets(Array.isArray(d) ? d : []))
+    fetch(`/api/projets?statut=publie`).then(r => r.json()).then(d => setProjets(Array.isArray(d) ? d : (d?.data || [])))
   }, [])
 
   const ouvrirCandidature = (projet: any) => {
@@ -2086,11 +2127,11 @@ function ClientCandidatures() {
   useEffect(() => {
     if (!user) return
     fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => {
-      const p = Array.isArray(d) ? d : []
+      const p = Array.isArray(d) ? d : (d?.data || [])
       setProjets(p)
       Promise.all(p.map((pr: any) => fetch(`/api/propositions?projetId=${pr.id}`).then(r => r.json())))
         .then(results => {
-          const all = results.flat()
+          const all = results.flatMap((r: any) => Array.isArray(r) ? r : (r?.data || []))
           setPropositions(all)
         })
     })
@@ -2190,10 +2231,10 @@ function ClientCandidatures() {
         // Recharger les propositions pour mettre à jour l'affichage
         if (user) {
           fetch(`/api/projets?clientId=${user.id}`).then(r => r.json()).then(d => {
-            const p = Array.isArray(d) ? d : []
+            const p = Array.isArray(d) ? d : (d?.data || [])
             setProjets(p)
             Promise.all(p.map((pr: any) => fetch(`/api/propositions?projetId=${pr.id}`).then(r => r.json())))
-              .then(results => setPropositions(results.flat()))
+              .then(results => setPropositions(results.flatMap((r: any) => Array.isArray(r) ? r : (r?.data || []))))
           })
         }
       }
@@ -2442,7 +2483,7 @@ function FreelanceCandidatures() {
 
   useEffect(() => {
     if (!user) return
-    fetch(`/api/propositions?freelanceId=${user.id}`).then(r => r.json()).then(d => setPropositions(Array.isArray(d) ? d : []))
+    fetch(`/api/propositions?freelanceId=${user.id}`).then(r => r.json()).then(d => setPropositions(Array.isArray(d) ? d : (d?.data || [])))
   }, [user])
 
   return (
@@ -2787,7 +2828,7 @@ function ContratsPage() {
   const loadContrats = useCallback(() => {
     if (!user) return
     const params = user.role === 'client' ? `clientId=${user.id}` : `freelanceId=${user.id}`
-    fetch(`/api/contrats?${params}&includePrecontrats=true`).then(r => r.json()).then(d => setContrats(Array.isArray(d) ? d : []))
+    fetch(`/api/contrats?${params}&includePrecontrats=true`).then(r => r.json()).then(d => setContrats(Array.isArray(d) ? d : (d?.data || [])))
   }, [user])
 
   useEffect(() => {
@@ -3017,12 +3058,12 @@ function JalonsPage() {
   useEffect(() => {
     if (!user) return
     const params = user.role === 'client' ? `clientId=${user.id}` : `freelanceId=${user.id}`
-    fetch(`/api/contrats?${params}`).then(r => r.json()).then(d => setContrats(Array.isArray(d) ? d : []))
+    fetch(`/api/contrats?${params}`).then(r => r.json()).then(d => setContrats(Array.isArray(d) ? d : (d?.data || [])))
   }, [user])
 
   useEffect(() => {
     if (!selectedContrat) return
-    fetch(`/api/jalons?contratId=${selectedContrat}`).then(r => r.json()).then(d => setJalons(Array.isArray(d) ? d : []))
+    fetch(`/api/jalons?contratId=${selectedContrat}`).then(r => r.json()).then(d => setJalons(Array.isArray(d) ? d : (d?.data || [])))
   }, [selectedContrat])
 
   const updateJalon = async (id: string, action: string, extra?: any) => {
@@ -3034,7 +3075,7 @@ function JalonsPage() {
     const data = await res.json()
     if (data.erreur) { toast.error(data.erreur); return }
     toast.success('Jalon mis à jour')
-    if (selectedContrat) fetch(`/api/jalons?contratId=${selectedContrat}`).then(r => r.json()).then(d => setJalons(Array.isArray(d) ? d : []))
+    if (selectedContrat) fetch(`/api/jalons?contratId=${selectedContrat}`).then(r => r.json()).then(d => setJalons(Array.isArray(d) ? d : (d?.data || [])))
   }
 
   const colonnes = [
@@ -3240,17 +3281,17 @@ function MessageriePage() {
 
   useEffect(() => {
     if (!user) return
-    fetch(`/api/messagerie?utilisateurId=${user.id}`).then(r => r.json()).then(d => setConversations(Array.isArray(d) ? d : []))
+    fetch(`/api/messagerie?utilisateurId=${user.id}`).then(r => r.json()).then(d => setConversations(Array.isArray(d) ? d : (d?.data || [])))
     
     // Si admin, charger tous les utilisateurs pour pouvoir leur écrire
     if (isAdmin) {
-      fetch('/api/admin?type=utilisateurs').then(r => r.json()).then(d => setAllUsers(Array.isArray(d) ? d : []))
+      fetch('/api/admin?type=utilisateurs').then(r => r.json()).then(d => setAllUsers(Array.isArray(d) ? d : (d?.data || [])))
     }
   }, [user, isAdmin])
 
   useEffect(() => {
     if (!selectedConv) return
-    fetch(`/api/messagerie?conversationId=${selectedConv}`).then(r => r.json()).then(d => setMessages(Array.isArray(d) ? d : []))
+    fetch(`/api/messagerie?conversationId=${selectedConv}`).then(r => r.json()).then(d => setMessages(Array.isArray(d) ? d : (d?.data || [])))
   }, [selectedConv])
 
   const envoyer = async () => {
@@ -3268,7 +3309,7 @@ function MessageriePage() {
       } else {
         toast.success('Message envoyé')
         setNewMessage('')
-        fetch(`/api/messagerie?conversationId=${selectedConv}`).then(r => r.json()).then(d => setMessages(Array.isArray(d) ? d : []))
+        fetch(`/api/messagerie?conversationId=${selectedConv}`).then(r => r.json()).then(d => setMessages(Array.isArray(d) ? d : (d?.data || [])))
       }
     } catch {
       toast.error('Erreur lors de l\'envoi du message')
@@ -3289,7 +3330,7 @@ function MessageriePage() {
       } else {
         toast.success('Conversation créée')
         setShowNewConversation(false)
-        fetch(`/api/messagerie?utilisateurId=${user?.id}`).then(r => r.json()).then(d => setConversations(Array.isArray(d) ? d : []))
+        fetch(`/api/messagerie?utilisateurId=${user?.id}`).then(r => r.json()).then(d => setConversations(Array.isArray(d) ? d : (d?.data || [])))
         setSelectedConv(data.conversationId)
       }
     } catch {
@@ -3585,7 +3626,7 @@ function PortefeuillePage() {
 
   useEffect(() => {
     if (!user) return
-    fetch(`/api/portefeuille?utilisateurId=${user.id}`).then(r => r.json()).then(d => { if (!d.erreur) setPortefeuille(d) })
+    fetch(`/api/portefeuille?utilisateurId=${user.id}`).then(r => r.json()).then(d => { if (!d.erreur) setPortefeuille(d?.portefeuille || d) })
   }, [user])
 
   const deposer = async () => {
@@ -3726,10 +3767,10 @@ function EvaluationsPage() {
 
   useEffect(() => {
     if (!user) return
-    fetch(`/api/evaluations?evalueId=${user.id}`).then(r => r.json()).then(d => setEvaluations(Array.isArray(d) ? d : []))
+    fetch(`/api/evaluations?evalueId=${user.id}`).then(r => r.json()).then(d => setEvaluations(Array.isArray(d) ? d : (d?.data || [])))
     const params = user.role === 'client' ? `clientId=${user.id}` : `freelanceId=${user.id}`
     fetch(`/api/contrats?${params}`).then(r => r.json()).then(d => {
-      setContratsTermines(Array.isArray(d) ? d.filter((c: any) => c.statut === 'termine') : [])
+      setContratsTermines((Array.isArray(d) ? d : (d?.data || [])).filter((c: any) => c.statut === 'termine'))
     })
   }, [user])
 
@@ -3837,7 +3878,7 @@ function ProfilPage() {
 
   useEffect(() => {
     loadProfil()
-    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/competences').then(r => r.json()).then(d => setCompetences(Array.isArray(d) ? d : (d?.data || []))).catch(() => {})
   }, [loadProfil])
 
   const saveProfil = async () => {
@@ -4550,7 +4591,7 @@ function AdminValidationPaiements() {
 
   useEffect(() => {
     const endpoint = filtreStatut === 'en_attente' ? 'transactions_en_attente' : 'transactions'
-    fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : []))
+    fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : (d?.data || [])))
   }, [filtreStatut])
 
   const valider = async (transaction: any, action: string, motif?: string) => {
@@ -4576,7 +4617,7 @@ function AdminValidationPaiements() {
     toast.success(action === 'valider_transaction' ? 'Transaction validée' : 'Transaction refusée')
     
     const endpoint = filtreStatut === 'en_attente' ? 'transactions_en_attente' : 'transactions'
-    fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : []))
+    fetch(`/api/admin?type=${endpoint}`).then(r => r.json()).then(d => setTransactions(Array.isArray(d) ? d : (d?.data || [])))
   }
 
   const voirJustificatif = (transaction: any) => {
@@ -4785,7 +4826,7 @@ function LitigesPage() {
   const [form, setForm] = useState({ contratId: '', jalonId: '', motif: '', defendeurId: '' })
 
   useEffect(() => {
-    fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : []))
+    fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : (d?.data || [])))
   }, [])
 
   const ouvrirLitige = async () => {
@@ -4796,7 +4837,7 @@ function LitigesPage() {
     })
     toast.success('Litige ouvert')
     setShowNew(false)
-    fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : []))
+    fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : (d?.data || [])))
   }
 
   const arbitrer = async (id: string, decision: string) => {
@@ -4806,7 +4847,7 @@ function LitigesPage() {
       body: JSON.stringify({ id, decision, commentaireDecision: `Décision: ${decision}` })
     })
     toast.success('Décision rendue')
-    fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : []))
+    fetch('/api/litiges').then(r => r.json()).then(d => setLitiges(Array.isArray(d) ? d : (d?.data || [])))
   }
 
   return (
@@ -4878,7 +4919,7 @@ function AdminUtilisateurs() {
 
   useEffect(() => {
     fetch('/api/admin?type=utilisateurs').then(r => r.json()).then(d => {
-      const users = Array.isArray(d) ? d : []
+      const users = Array.isArray(d) ? d : (d?.data || [])
       setUtilisateurs(users)
       setFilteredUsers(users)
     })
@@ -5140,28 +5181,8 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
         </div>
         <div>
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold text-[#1E293B]">{value}</p>
+          <p className="text-xl font-bold text-[#1E293B]">{value}</p>
         </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function QuickActionsClient() {
-  const { setCurrentView } = useAppStore()
-  return (
-    <Card>
-      <CardHeader><CardTitle className="text-lg">Actions rapides</CardTitle></CardHeader>
-      <CardContent className="flex gap-3 flex-wrap">
-        <Button variant="outline" onClick={() => setCurrentView('projets')} className="border-[#3B82F6] text-[#3B82F6]">
-          <Plus className="w-4 h-4 mr-2" /> Créer un projet
-        </Button>
-        <Button variant="outline" onClick={() => setCurrentView('candidatures')} className="border-[#3B82F6] text-[#3B82F6]">
-          <FileText className="w-4 h-4 mr-2" /> Voir les candidatures
-        </Button>
-        <Button variant="outline" onClick={() => setCurrentView('portefeuille')} className="border-[#3B82F6] text-[#3B82F6]">
-          <Wallet className="w-4 h-4 mr-2" /> Mon portefeuille
-        </Button>
       </CardContent>
     </Card>
   )

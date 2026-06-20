@@ -12,15 +12,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erreur: 'Aucun fichier fourni' }, { status: 400 })
     }
 
-    // Map type to Laravel dossier parameter
-    let dossier = 'uploads'
-    if (type === 'signature') dossier = 'signatures'
-    else if (type === 'cahier') dossier = 'cahiers_charges'
-    else if (type === 'justificatif') dossier = 'justificatifs'
-    else if (type === 'livrable') dossier = 'livrables'
-    else if (type === 'avatar') dossier = 'avatars'
-    else if (type === 'roadmap') dossier = 'feuilles_route'
-
     // Retrieve Bearer token from cookie/headers
     let token = request.cookies.get('api_token')?.value || ''
     const authHeader = request.headers.get('Authorization')
@@ -30,8 +21,8 @@ export async function POST(request: NextRequest) {
 
     // Create form data for Laravel
     const laravelFormData = new FormData()
-    laravelFormData.append('fichier', file)
-    laravelFormData.append('dossier', dossier)
+    laravelFormData.append('file', file)
+    if (type) laravelFormData.append('type', type)
 
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -46,15 +37,22 @@ export async function POST(request: NextRequest) {
       body: laravelFormData
     })
 
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const text = await response.text()
+      console.error('Laravel returned non-JSON:', text.substring(0, 300))
+      return NextResponse.json({ erreur: 'Erreur serveur Laravel (réponse non-JSON)' }, { status: 500 })
+    }
+
     const data = await response.json()
     if (!response.ok) {
-      const errMessage = data.message || data.erreur || 'Erreur lors de l\'upload'
+      const errMessage = data.message || data.erreur || "Erreur lors de l'upload"
       return NextResponse.json({ erreur: errMessage }, { status: response.status })
     }
 
     return NextResponse.json(data, { status: response.status })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erreur upload:', error)
-    return NextResponse.json({ erreur: 'Erreur lors de l\'upload du fichier' }, { status: 500 })
+    return NextResponse.json({ erreur: "Erreur lors de l'upload du fichier" }, { status: 500 })
   }
 }

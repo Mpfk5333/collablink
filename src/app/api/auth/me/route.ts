@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const LARAVEL_API_URL = process.env.LARAVEL_API_URL || 'http://localhost:8000/api'
+
 export async function GET(request: NextRequest) {
-  const token = request.cookies.get('auth_token')?.value
+  const token = request.cookies.get('api_token')?.value
 
   if (!token) {
     return NextResponse.json({ erreur: 'Non authentifié' }, { status: 401 })
   }
 
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+    const res = await fetch(`${LARAVEL_API_URL}/auth/me`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',

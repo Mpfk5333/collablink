@@ -19,25 +19,12 @@ export interface UseAuthReturn {
   clearError: () => void
 }
 
-/**
- * Hook personnalisé pour la gestion de l'authentification
- * 
- * @example
- * const { user, isAuthenticated, login, logout } = useAuth()
- * 
- * if (!isAuthenticated) {
- *   return <LoginPage onLogin={login} />
- * }
- * 
- * return <Dashboard user={user} />
- */
 export function useAuth(): UseAuthReturn {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Vérifier l'authentification au chargement
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -55,7 +42,6 @@ export function useAuth(): UseAuthReturn {
         setIsLoading(false)
       }
     }
-
     checkAuth()
   }, [])
 
@@ -65,14 +51,12 @@ export function useAuth(): UseAuthReturn {
       setError(null)
       try {
         const response = await authService.login(email, password)
-        const { token, user: userData } = response.data.data
-
+        const { token, user: userData } = response.data.data as { token: string; user: any }
         localStorage.setItem('api_token', token)
         setUser(userData)
         setIsAuthenticated(true)
       } catch (err: any) {
-        const message =
-          err.response?.data?.message || 'Erreur de connexion'
+        const message = err.response?.data?.message || 'Erreur de connexion'
         setError(message)
         throw err
       } finally {
@@ -94,14 +78,12 @@ export function useAuth(): UseAuthReturn {
       setError(null)
       try {
         const response = await authService.register(data)
-        const { token, user: userData } = response.data.data
-
+        const { token, user: userData } = response.data.data as { token: string; user: any }
         localStorage.setItem('api_token', token)
         setUser(userData)
         setIsAuthenticated(true)
       } catch (err: any) {
-        const message =
-          err.response?.data?.message || 'Erreur lors de l\'enregistrement'
+        const message = err.response?.data?.message || "Erreur lors de l'enregistrement"
         setError(message)
         throw err
       } finally {
@@ -138,5 +120,3 @@ export function useAuth(): UseAuthReturn {
     clearError,
   }
 }
-
-export default useAuth
