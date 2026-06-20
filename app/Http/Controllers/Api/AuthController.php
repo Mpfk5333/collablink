@@ -24,18 +24,32 @@ class AuthController extends Controller
             'role' => ['required', Rule::in(['client', 'freelance'])],
             'telephone' => 'nullable|string|max:20',
             'pays' => 'nullable|string|max:100',
-            // Profil client
             'type' => 'nullable|in:particulier,entreprise',
             'nom_entreprise' => 'nullable|string|max:255',
             'secteur_activite' => 'nullable|string|max:255',
-            // Profil freelance
-            'titre_professionnel' => 'nullable|string|max:255|required_if:role,freelance',
+            'titre_professionnel' => 'nullable|string|max:255',
             'tarif' => 'nullable|numeric',
             'annees_experience' => 'nullable|integer|min:0',
+        ], [
+            'nom.required'                  => 'Le nom est obligatoire.',
+            'prenom.required'               => 'Le prénom est obligatoire.',
+            'email.required'                => 'L\'adresse email est obligatoire.',
+            'email.email'                   => 'L\'adresse email n\'est pas valide.',
+            'email.unique'                  => 'Cette adresse email est déjà utilisée. Veuillez vous connecter ou utiliser une autre adresse.',
+            'mot_de_passe.required'         => 'Le mot de passe est obligatoire.',
+            'mot_de_passe.min'              => 'Le mot de passe doit contenir au moins 6 caractères.',
+            'mot_de_passe.confirmed'        => 'La confirmation du mot de passe ne correspond pas.',
+            'role.required'                 => 'Le rôle est obligatoire.',
+            'role.in'                       => 'Le rôle doit être client ou freelance.',
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            $errors = $validator->errors()->toArray();
+            $firstMessage = collect($errors)->flatten()->first();
+            return response()->json([
+                'message' => $firstMessage,
+                'errors' => $errors,
+            ], 422);
         }
 
         $data = $validator->validated();

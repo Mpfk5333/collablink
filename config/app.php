@@ -49,6 +49,7 @@ return [
         Illuminate\Pipeline\PipelineServiceProvider::class,
         Illuminate\Queue\QueueServiceProvider::class,
         Illuminate\Redis\RedisServiceProvider::class,
+        Illuminate\Auth\AuthServiceProvider::class,
         Illuminate\Auth\Passwords\PasswordResetServiceProvider::class,
         Illuminate\Session\SessionServiceProvider::class,
         Illuminate\Translation\TranslationServiceProvider::class,
@@ -58,8 +59,8 @@ return [
         Laravel\Reverb\ReverbServiceProvider::class,
         App\Providers\AppServiceProvider::class,
         App\Providers\AuthServiceProvider::class,
-        App\Providers\EventServiceProvider::class,
-        App\Providers\RouteServiceProvider::class,
+        // EventServiceProvider: empty, removed to avoid redundancy
+        // RouteServiceProvider: removed — routes already loaded via bootstrap/app.php withRouting()
     ],
     'aliases' => Facade::defaultAliases()->merge([
         'Sanctum' => Laravel\Sanctum\SanctumFacade::class,

@@ -193,8 +193,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 });
 
-// Upload public de fichiers
-Route::post('/upload', [App\Http\Controllers\Api\UploadController::class, 'store'])->middleware('auth:sanctum');
+// Upload de fichiers (public pour permettre l'upload pendant l'inscription)
+Route::post('/upload', [App\Http\Controllers\Api\UploadController::class, 'store']);
 Route::get('/storage/{path}', function ($path) {
     $file = storage_path('app/public/'.$path);
     if (!file_exists($file)) {
