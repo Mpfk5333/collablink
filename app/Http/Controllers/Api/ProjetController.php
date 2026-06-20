@@ -40,12 +40,18 @@ class ProjetController extends Controller
         if ($user->role === 'client') {
             $query->where('client_id', $user->id);
         } elseif ($user->role === 'freelance') {
-            // Freelance : projets publiés + projets où il a candidaté ou proposé
-            $query->where(function ($q) use ($user) {
-                $q->whereIn('statut', ['publie', 'en_recrutement'])
-                  ->orWhereHas('propositions', fn($qq) => $qq->where('freelance_id', $user->id))
-                  ->orWhereHas('propositionsIA', fn($qq) => $qq->where('freelance_id', $user->id));
-            });
+            // Si un client_id est fourni explicitement, retourner ses projets publiés
+            if ($request->has('client_id') && $request->client_id) {
+                $query->where('client_id', $request->client_id)
+                      ->whereIn('statut', ['publie', 'en_recrutement', 'brouillon']);
+            } else {
+                // Freelance : projets publiés + projets où il a candidaté ou proposé
+                $query->where(function ($q) use ($user) {
+                    $q->whereIn('statut', ['publie', 'en_recrutement'])
+                      ->orWhereHas('propositions', fn($qq) => $qq->where('freelance_id', $user->id))
+                      ->orWhereHas('propositionsIA', fn($qq) => $qq->where('freelance_id', $user->id));
+                });
+            }
         }
 
         // Recherche textuelle
@@ -135,7 +141,17 @@ class ProjetController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $ancienStatut = $projet->statut;
+        $nouveauStatut = $request->input('statut', $ancienStatut);
+
         $projet->update($validator->validated());
+
+        // Si le projet passe de brouillon à publié, définir la date de publication et générer les recommandations IA
+        if ($ancienStatut === 'brouillon' && $nouveauStatut === 'publie') {
+            $projet->update(['date_publication' => now()]);
+            $this->genererRecommandationsIA($projet);
+        }
+
         return response()->json(['message' => 'Projet mis à jour', 'projet' => $projet->fresh()]);
     }
 

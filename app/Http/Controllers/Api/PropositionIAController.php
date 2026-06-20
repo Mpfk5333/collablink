@@ -20,6 +20,77 @@ use Illuminate\Support\Facades\Validator;
  */
 class PropositionIAController extends Controller
 {
+    /**
+     * CLIENT fait une proposition à un FREELANCE (via recherche ou recommandation)
+     * Direction inverse : c'est le client qui propose son projet à un freelance
+     */
+    public function proposerAuFreelance(Request $request)
+    {
+        $user = $request->user();
+
+        if ($user->role !== 'client') {
+            return response()->json(['message' => 'Seuls les clients peuvent proposer des projets aux freelances'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'projet_id' => 'required|exists:projets,id',
+            'freelance_id' => 'required|exists:utilisateurs,id',
+            'lettre_motivation' => 'nullable|string',
+            'montant_propose' => 'required|numeric|min:0',
+            'delai_propose' => 'required|date|after:now',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $projet = Projet::findOrFail($request->projet_id);
+        
+        // Vérifier que c'est bien le projet du client
+        if ($projet->client_id !== $user->id) {
+            return response()->json(['message' => 'Ce projet ne vous appartient pas'], 403);
+        }
+
+        // Vérifier que le destinataire est bien un freelance
+        $freelance = User::findOrFail($request->freelance_id);
+        if ($freelance->role !== 'freelance') {
+            return response()->json(['message' => 'Le destinataire doit être un freelance'], 422);
+        }
+
+        // Vérifier qu'il n'y a pas déjà une proposition en cours
+        $existante = PropositionIA::where('projet_id', $projet->id)
+            ->where('freelance_id', $freelance->id)
+            ->whereIn('statut', ['en_attente', 'negociation', 'validee'])
+            ->first();
+        if ($existante) {
+            return response()->json(['message' => 'Une proposition est déjà en cours pour ce freelance sur ce projet'], 422);
+        }
+
+        $propositionIA = PropositionIA::create([
+            'projet_id' => $projet->id,
+            'freelance_id' => $freelance->id,
+            'lettre_motivation' => $request->lettre_motivation,
+            'montant_propose' => $request->montant_propose,
+            'delai_propose' => $request->delai_propose,
+            'statut' => 'en_attente',
+            'source' => 'proposition_client',
+        ]);
+
+        // Notifier le freelance
+        Notification::create([
+            'utilisateur_id' => $freelance->id,
+            'type' => 'proposition_client_recue',
+            'titre' => 'Nouveau projet proposé par un client',
+            'contenu' => "{$user->prenom} {$user->nom} vous propose le projet « {$projet->titre} » : {$propositionIA->montant_propose} FCFA, livraison le {$propositionIA->delai_propose->format('d/m/Y')}.",
+            'lien_action' => "/propositions-ia/{$propositionIA->id}",
+        ]);
+
+        return response()->json([
+            'message' => 'Proposition envoyée au freelance avec succès',
+            'proposition' => $propositionIA->load(['projet', 'freelance']),
+        ], 201);
+    }
+
     public function store(Request $request, $projetId)
     {
         $projet = Projet::findOrFail($projetId);

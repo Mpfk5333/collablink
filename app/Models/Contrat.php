@@ -27,6 +27,7 @@ class Contrat extends Model
     public function client() { return $this->belongsTo(User::class, 'client_id'); }
     public function freelance() { return $this->belongsTo(User::class, 'freelance_id'); }
     public function jalons() { return $this->hasMany(Jalon::class, 'contrat_id'); }
+    public function taches() { return $this->hasMany(Tache::class, 'contrat_id'); }
     public function evaluations() { return $this->hasMany(Evaluation::class, 'contrat_id'); }
     public function litiges() { return $this->hasMany(Litige::class, 'contrat_id'); }
     public function feuilleRoute() { return $this->hasOne(FeuilleRoute::class, 'contrat_id'); }

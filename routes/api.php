@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Langues
     Route::post('/profil/langues', [App\Http\Controllers\Api\ProfilController::class, 'addLangue']);
     Route::delete('/profil/langues/{id}', [App\Http\Controllers\Api\ProfilController::class, 'deleteLangue']);
+    Route::get('/freelances', [App\Http\Controllers\Api\FreelanceController::class, 'search']);
     Route::get('/freelances/search', [App\Http\Controllers\Api\FreelanceController::class, 'search']);
     Route::get('/freelances/recommandations', [App\Http\Controllers\Api\FreelanceController::class, 'recommandations']);
     Route::get('/freelances/{id}', [App\Http\Controllers\Api\FreelanceController::class, 'show']);
@@ -91,6 +92,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================================
     // PROPOSITIONS IA (nouveau système de recommandation)
     // ============================================================
+    // Client propose un projet à un freelance (via recherche)
+    Route::post('/propositions-ia', [App\Http\Controllers\Api\PropositionIAController::class, 'proposerAuFreelance']);
+    // Freelance propose sur un projet (via recommandation IA)
     Route::post('/projets/{id}/propositions-ia', [App\Http\Controllers\Api\PropositionIAController::class, 'store']);
     Route::get('/propositions-ia/recues', [App\Http\Controllers\Api\PropositionIAController::class, 'recues']);
     Route::get('/propositions-ia/envoyees', [App\Http\Controllers\Api\PropositionIAController::class, 'envoyees']);
@@ -115,10 +119,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // PRÉCONTRATS & CONTRATS
     // ============================================================
     Route::get('/precontrats', [App\Http\Controllers\Api\ContratController::class, 'precontrats']);
+    Route::get('/propositions/{id}/precontrat-info', [App\Http\Controllers\Api\PropositionController::class, 'getPrecontratInfo']);
     Route::post('/propositions/{id}/precontrat', [App\Http\Controllers\Api\ContratController::class, 'genererPrecontrat']);
+    Route::post('/propositions/{id}/payer', [App\Http\Controllers\Api\ContratController::class, 'payerPrecontrat']); // Payer pour une proposition (précontrat créé après validation admin)
     Route::post('/precontrats/{id}/valider', [App\Http\Controllers\Api\ContratController::class, 'validerPrecontrat']);
     Route::post('/precontrats/{id}/refuser', [App\Http\Controllers\Api\ContratController::class, 'refuserPrecontrat']);
-    Route::post('/precontrats/{id}/payer', [App\Http\Controllers\Api\ContratController::class, 'payerPrecontrat']);
+    Route::post('/precontrats/{id}/payer', [App\Http\Controllers\Api\ContratController::class, 'payerPrecontrat']); // Payer pour un précontrat existant (ancien flow)
     Route::get('/contrats', [App\Http\Controllers\Api\ContratController::class, 'index']);
     Route::get('/contrats/{id}', [App\Http\Controllers\Api\ContratController::class, 'show']);
     Route::get('/contrats/{id}/pdf', [App\Http\Controllers\Api\ContratController::class, 'downloadPdf']);
@@ -144,6 +150,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/jalons/{id}/refuser', [App\Http\Controllers\Api\JalonController::class, 'refuser']);
     Route::post('/jalons/{id}/livrable', [App\Http\Controllers\Api\JalonController::class, 'uploadLivrable']);
     Route::get('/jalons/{id}/download-livrable', [App\Http\Controllers\Api\JalonController::class, 'downloadLivrable']);
+
+    // ============================================================
+    // TÂCHES (nouveau système Kanban)
+    // ============================================================
+    Route::get('/contrats/{id}/taches', [App\Http\Controllers\Api\TacheController::class, 'index']);
+    Route::post('/contrats/{id}/taches', [App\Http\Controllers\Api\TacheController::class, 'store']);
+    Route::put('/taches/{id}', [App\Http\Controllers\Api\TacheController::class, 'update']);
+    Route::delete('/taches/{id}', [App\Http\Controllers\Api\TacheController::class, 'destroy']);
+    Route::post('/taches/{id}/demarrer', [App\Http\Controllers\Api\TacheController::class, 'demarrer']);
+    Route::post('/taches/{id}/soumettre', [App\Http\Controllers\Api\TacheController::class, 'soumettre']);
+    Route::post('/taches/{id}/valider', [App\Http\Controllers\Api\TacheController::class, 'valider']);
+    Route::post('/taches/{id}/refuser', [App\Http\Controllers\Api\TacheController::class, 'refuser']);
+    Route::post('/taches/{id}/refaire', [App\Http\Controllers\Api\TacheController::class, 'refaire']);
+    Route::post('/taches/{id}/litige', [App\Http\Controllers\Api\TacheController::class, 'creerLitige']);
 
     // ============================================================
     // MESSAGERIE

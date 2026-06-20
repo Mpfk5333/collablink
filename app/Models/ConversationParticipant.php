@@ -12,6 +12,7 @@ class ConversationParticipant extends Model
     protected $table = 'conversation_participants';
     protected $keyType = 'string';
     public $incrementing = false;
+    public $timestamps = false; // La table n'a pas de colonnes created_at/updated_at
 
     protected $fillable = ['conversation_id', 'utilisateur_id'];
 

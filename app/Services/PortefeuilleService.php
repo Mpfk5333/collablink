@@ -31,7 +31,16 @@ class PortefeuilleService
                     break;
 
                 case 'mise_en_sequestre':
-                    // Déjà débité à la création, on valide juste
+                    // Débiter le solde et créditer le séquestre
+                    $totalAvecCommission = $transaction->montant_total ?? ($transaction->montant + ($transaction->montant_commission ?? 0));
+                    
+                    if ($portefeuille->solde < $totalAvecCommission) {
+                        // Si solde insuffisant, on annule
+                        throw new \Exception('Solde insuffisant pour la mise en séquestre');
+                    }
+                    
+                    $portefeuille->decrement('solde', $totalAvecCommission);
+                    $portefeuille->increment('solde_sequestre', $transaction->montant);
                     break;
 
                 case 'liberation_jalon':
@@ -55,19 +64,72 @@ class PortefeuilleService
                 'contenu' => "Votre transaction de {$transaction->montant} FCFA ({$transaction->type}) a été validée.",
             ]);
 
-            // Si la transaction est liée à un précontrat en attente (via description) → l'activer
+            // Si la transaction concerne une PROPOSITION (nouveau flow) → créer le précontrat
+            if (preg_match('/Paiement proposition ID: ([a-f0-9-]+)/', $transaction->description, $matches)) {
+                $proposition = \App\Models\Proposition::with(['projet', 'freelance'])->find($matches[1]);
+                
+                if ($proposition && $proposition->statut === 'acceptee') {
+                    // Créer le précontrat maintenant que le paiement est validé
+                    $dateDebut = now()->addDays(2);
+                    $dateFin = $proposition->delai_propose;
+                    
+                    $precontrat = Precontrat::create([
+                        'projet_id' => $proposition->projet_id,
+                        'proposition_id' => $proposition->id,
+                        'objectifs' => $proposition->projet->description ?? "Réalisation du projet « {$proposition->projet->titre} » selon les conditions convenues.",
+                        'clauses' => 'Clauses standards : Le freelance s\'engage à livrer le projet dans les délais convenus. Le client s\'engage à valider les jalons dans un délai de 3 jours ouvrables. En cas de litige, les deux parties s\'engagent à chercher une solution amiable.',
+                        'budget_final' => $proposition->montant_propose,
+                        'date_debut' => $dateDebut,
+                        'date_fin' => $dateFin,
+                        'statut' => 'en_attente_signature', // Directement en attente de signature car paiement déjà validé
+                    ]);
+                    
+                    // Notifier le freelance que le précontrat est créé et prêt à signer
+                    Notification::create([
+                        'utilisateur_id' => $proposition->freelance_id,
+                        'type' => 'precontrat_valide',
+                        'titre' => 'Précontrat généré et prêt à signer !',
+                        'contenu' => "Le paiement pour le projet « {$proposition->projet->titre} » a été validé par l'administrateur. Le précontrat est maintenant généré. Vous pouvez le consulter et le signer.",
+                        'lien_action' => "/contrats",
+                    ]);
+                    
+                    // Notifier le client que le précontrat est créé
+                    Notification::create([
+                        'utilisateur_id' => $proposition->projet->client_id,
+                        'type' => 'paiement_valide',
+                        'titre' => 'Paiement validé et précontrat généré !',
+                        'contenu' => "Votre paiement pour le projet « {$proposition->projet->titre} » a été validé. Le précontrat a été généré automatiquement. En attente de la signature du freelance.",
+                        'lien_action' => "/contrats",
+                    ]);
+                }
+                
+                return; // Fin du traitement pour les propositions
+            }
+
+            // Si la transaction est liée à un PRÉCONTRAT existant (ancien flow) → l'activer
             if (preg_match('/Paiement precontrat ID: ([a-f0-9-]+)/', $transaction->description, $matches)) {
                 $precontrat = Precontrat::where('id', $matches[1])
                     ->where('statut', 'en_attente_paiement')
                     ->first();
                 if ($precontrat) {
-                    $precontrat->update(['statut' => 'valide_freelance']);
+                    $precontrat->update(['statut' => 'en_attente_signature']);
+                    
+                    // Notifier le freelance que le paiement est validé et qu'il peut signer
                     Notification::create([
                         'utilisateur_id' => $precontrat->proposition->freelance_id,
                         'type' => 'precontrat_valide',
                         'titre' => 'Paiement validé !',
-                        'contenu' => "Le paiement pour le projet « {$precontrat->projet->titre} » a été validé. Vous pouvez maintenant signer le précontrat.",
-                        'lien_action' => "/precontrats/{$precontrat->id}",
+                        'contenu' => "Le paiement pour le projet « {$precontrat->projet->titre} » a été validé par l'administrateur. Vous pouvez maintenant consulter et signer le précontrat.",
+                        'lien_action' => "/contrats",
+                    ]);
+                    
+                    // Notifier le client
+                    Notification::create([
+                        'utilisateur_id' => $precontrat->projet->client_id,
+                        'type' => 'paiement_valide',
+                        'titre' => 'Paiement validé !',
+                        'contenu' => "Votre paiement pour le projet « {$precontrat->projet->titre} » a été validé. En attente de la signature du freelance.",
+                        'lien_action' => "/contrats",
                     ]);
                 }
             }

@@ -203,6 +203,14 @@ class FreelanceController extends Controller
         return response()->json(['recommandations' => $toutesRecommandations]);
     }
 
+    /**
+     * Point d'entrée dédié pour les recommandations IA (appelé via /freelances/recommandations).
+     */
+    public function recommandations(Request $request)
+    {
+        return $this->genererRecommandations($request);
+    }
+
     public function show($id)
     {
         $freelance = User::where('role', 'freelance')

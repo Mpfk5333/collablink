@@ -94,13 +94,9 @@ class ContratController extends Controller
             return response()->json(['message' => 'Non autorisé'], 403);
         }
 
-        if (!in_array($precontrat->statut, ['genere', 'en_attente_paiement', 'valide_freelance'])) {
-            return response()->json(['message' => 'Précontrat déjà traité'], 422);
-        }
-
-        // Vérifier que le paiement a été validé
-        if ($precontrat->statut !== 'valide_freelance') {
-            return response()->json(['message' => 'Le paiement doit être validé par l\'administrateur d\'abord'], 422);
+        // Vérifier que le paiement a été validé par l'admin
+        if ($precontrat->statut !== 'en_attente_signature') {
+            return response()->json(['message' => 'Le paiement doit être validé par l\'administrateur avant de pouvoir signer'], 422);
         }
 
         $precontrat->update(['statut' => 'signe']);
@@ -208,6 +204,66 @@ class ContratController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
+        // Accepter les deux formats pour compatibilité
+        $includePrecontrats = $request->boolean('includePrecontrats', false) || $request->boolean('include_precontrats', false);
+
+        // Si on veut inclure les précontrats, on retourne une liste combinée
+        if ($includePrecontrats) {
+            $contrats = Contrat::with(['projet', 'client', 'freelance', 'precontrat', 'jalons']);
+            $precontrats = Precontrat::with(['projet.client', 'proposition.freelance.profilFreelance']);
+
+            if ($user->role === 'client') {
+                $contrats->where('client_id', $user->id);
+                $precontrats->whereHas('projet', fn($q) => $q->where('client_id', $user->id));
+            } elseif ($user->role === 'freelance') {
+                $contrats->where('freelance_id', $user->id);
+                $precontrats->whereHas('proposition', fn($q) => $q->where('freelance_id', $user->id));
+            }
+
+            $listeContrats = $contrats->get()->map(function ($c) {
+                return [
+                    'id' => $c->id,
+                    'type' => 'contrat',
+                    'numeroContrat' => $c->numero_contrat,
+                    'montantTotal' => $c->montant_total,
+                    'statut' => $c->statut,
+                    'projet' => $c->projet,
+                    'client' => $c->client,
+                    'freelance' => $c->freelance,
+                    'precontrat' => $c->precontrat,
+                    'precontratId' => $c->precontrat_id,
+                    'jalons' => $c->jalons,
+                    'createdAt' => $c->created_at,
+                ];
+            });
+
+            $listePrecontrats = $precontrats->get()->map(function ($p) {
+                return [
+                    'id' => $p->id,
+                    'type' => 'precontrat',
+                    'numeroContrat' => 'PRE-' . substr($p->id, 0, 8),
+                    'montantTotal' => $p->budget_final,
+                    'budgetFinal' => $p->budget_final,
+                    'statut' => $p->statut,
+                    'projet' => $p->projet,
+                    'client' => $p->projet->client ?? null,
+                    'freelance' => $p->proposition->freelance ?? null,
+                    'proposition' => $p->proposition,
+                    'objectifs' => $p->objectifs,
+                    'clauses' => $p->clauses,
+                    'dateDebut' => $p->date_debut,
+                    'dateFin' => $p->date_fin,
+                    'createdAt' => $p->created_at,
+                ];
+            });
+
+            // Fusionner et trier par date de création
+            $tous = $listeContrats->concat($listePrecontrats)->sortByDesc('createdAt')->values();
+
+            return response()->json($tous);
+        }
+
+        // Sinon, retourner uniquement les contrats signés
         $query = Contrat::with(['projet', 'client', 'freelance', 'jalons']);
 
         if ($user->role === 'client') {
@@ -231,15 +287,29 @@ class ContratController extends Controller
 
     public function downloadPdf($id)
     {
-        $contrat = Contrat::with(['projet', 'client', 'freelance', 'precontrat'])->findOrFail($id);
-
-        $pdf = Pdf::loadView('contrats.pdf', compact('contrat'));
-        $filename = "contrat_{$contrat->numero_contrat}.pdf";
-
-        return response($pdf->output(), 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
-        ]);
+        // Chercher d'abord un contrat
+        $contrat = Contrat::with(['projet', 'client', 'freelance', 'precontrat'])->find($id);
+        
+        if ($contrat) {
+            // Retourner le HTML du contrat signé
+            $html = view('contrats.html', compact('contrat'))->render();
+            return response($html, 200, [
+                'Content-Type' => 'text/html; charset=utf-8',
+            ]);
+        }
+        
+        // Si pas de contrat, chercher un précontrat
+        $precontrat = Precontrat::with(['projet.client', 'proposition.freelance.profilFreelance'])->find($id);
+        
+        if ($precontrat) {
+            // Retourner le HTML du précontrat
+            $html = view('contrats.precontrat-html', compact('precontrat'))->render();
+            return response($html, 200, [
+                'Content-Type' => 'text/html; charset=utf-8',
+            ]);
+        }
+        
+        return response('Contrat ou précontrat introuvable', 404);
     }
 
     public function terminer(Request $request, $id)
@@ -262,6 +332,70 @@ class ContratController extends Controller
 
     public function payerPrecontrat(Request $request, $id)
     {
+        // $id peut être soit un precontrat_id (ancien flow) soit une proposition_id (nouveau flow)
+        // On vérifie d'abord si c'est une proposition
+        $proposition = Proposition::with(['projet.client', 'freelance'])->find($id);
+        
+        if ($proposition) {
+            // Nouveau flow : paiement pour une proposition acceptée (précontrat sera créé après validation admin)
+            $user = $request->user();
+
+            if ($proposition->projet->client_id !== $user->id) {
+                return response()->json(['message' => 'Non autorisé'], 403);
+            }
+
+            if ($proposition->statut !== 'acceptee') {
+                return response()->json(['message' => 'La proposition doit être acceptée d\'abord'], 422);
+            }
+
+            $validator = Validator::make($request->all(), [
+                'justificatif_url' => 'required|string',
+                'mode_paiement' => 'nullable|string',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            $portefeuille = $user->portefeuille()->firstOrCreate(
+                ['utilisateur_id' => $user->id],
+                ['solde' => 0, 'solde_sequestre' => 0, 'total_depose' => 0, 'total_retire' => 0, 'total_gagne' => 0]
+            );
+            
+            $calc = app(\App\Services\PortefeuilleService::class)->calculerCommission($proposition->montant_propose);
+
+            $transaction = \App\Models\Transaction::create([
+                'portefeuille_id' => $portefeuille->id,
+                'type' => 'mise_en_sequestre',
+                'montant' => $proposition->montant_propose,
+                'reference' => \App\Models\Transaction::genererReference('SEQ'),
+                'statut' => 'en_attente',
+                'justificatif_url' => $request->justificatif_url,
+                'mode_paiement' => $request->mode_paiement ?? 'mobile_money',
+                'description' => "Paiement proposition ID: {$proposition->id} (commission 5% incluse)",
+                'montant_commission' => $calc['commission'],
+                'montant_total' => $calc['total'],
+            ]);
+
+            // Notifier les administrateurs
+            $admins = User::where('role', 'administrateur')->get();
+            foreach ($admins as $admin) {
+                Notification::create([
+                    'utilisateur_id' => $admin->id,
+                    'type' => 'paiement_valide',
+                    'titre' => 'Nouveau paiement à valider',
+                    'contenu' => "Le client {$user->prenom} {$user->nom} a soumis un paiement de {$calc['total']} FCFA pour le projet « {$proposition->projet->titre} ».",
+                    'lien_action' => "/admin/transactions",
+                ]);
+            }
+
+            return response()->json([
+                'message' => 'Paiement soumis. En attente de validation par l\'administrateur. Le précontrat sera généré après validation.',
+                'transaction' => $transaction,
+            ]);
+        }
+
+        // Ancien flow : paiement pour un précontrat existant (rétrocompatibilité)
         $precontrat = Precontrat::findOrFail($id);
         $user = $request->user();
 
@@ -274,7 +408,10 @@ class ContratController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $portefeuille = $user->portefeuille()->firstOrCreate(['solde' => 0]);
+        $portefeuille = $user->portefeuille()->firstOrCreate(
+            ['utilisateur_id' => $user->id],
+            ['solde' => 0, 'solde_sequestre' => 0, 'total_depose' => 0, 'total_retire' => 0, 'total_gagne' => 0]
+        );
         $calc = app(\App\Services\PortefeuilleService::class)->calculerCommission($precontrat->budget_final);
 
         $transaction = \App\Models\Transaction::create([

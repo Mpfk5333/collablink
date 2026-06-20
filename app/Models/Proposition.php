@@ -26,4 +26,5 @@ class Proposition extends Model
     public function projet() { return $this->belongsTo(Projet::class, 'projet_id'); }
     public function freelance() { return $this->belongsTo(User::class, 'freelance_id'); }
     public function precontrats() { return $this->hasMany(Precontrat::class, 'proposition_id'); }
+    public function precontrat() { return $this->hasOne(Precontrat::class, 'proposition_id'); }
 }

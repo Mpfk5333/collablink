@@ -40,10 +40,8 @@
     36 => 'Laravel\\Reverb\\ReverbServiceProvider',
     37 => 'App\\Providers\\AppServiceProvider',
     38 => 'App\\Providers\\AuthServiceProvider',
-    39 => 'App\\Providers\\EventServiceProvider',
-    40 => 'App\\Providers\\RouteServiceProvider',
-    41 => 'App\\Providers\\AppServiceProvider',
-    42 => 'App\\Providers\\AuthServiceProvider',
+    39 => 'App\\Providers\\AppServiceProvider',
+    40 => 'App\\Providers\\AuthServiceProvider',
   ),
   'eager' => 
   array (
@@ -71,10 +69,8 @@
     21 => 'Laravel\\Reverb\\ReverbServiceProvider',
     22 => 'App\\Providers\\AppServiceProvider',
     23 => 'App\\Providers\\AuthServiceProvider',
-    24 => 'App\\Providers\\EventServiceProvider',
-    25 => 'App\\Providers\\RouteServiceProvider',
-    26 => 'App\\Providers\\AppServiceProvider',
-    27 => 'App\\Providers\\AuthServiceProvider',
+    24 => 'App\\Providers\\AppServiceProvider',
+    25 => 'App\\Providers\\AuthServiceProvider',
   ),
   'deferred' => 
   array (

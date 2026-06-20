@@ -9,6 +9,11 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        // === ADMINISTRATEUR ===
+        // Créer le compte administrateur en premier
+        $this->call(AdminUserSeeder::class);
+
+        // === CATÉGORIES & COMPÉTENCES ===
         // Catégories & compétences de base (nécessaires pour le système)
         $catDev = CategorieCompetence::create(['nom' => 'Développement']);
         $catDesign = CategorieCompetence::create(['nom' => 'Design']);
@@ -62,6 +67,8 @@ class DatabaseSeeder extends Seeder
         Competence::create(['nom' => 'Jira', 'categorie_id' => $catGestion->id]);
         Competence::create(['nom' => 'Trello', 'categorie_id' => $catGestion->id]);
 
-        echo "✅ Seed terminé : Compétences et catégories créées (pas de données de test)\n";
+        echo "✅ Seed terminé :\n";
+        echo "   - Administrateur créé (admin@collablink.com / Admin@2026!)\n";
+        echo "   - Compétences et catégories créées\n";
     }
 }

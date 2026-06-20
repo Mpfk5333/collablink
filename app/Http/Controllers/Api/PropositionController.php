@@ -42,7 +42,7 @@ class PropositionController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'lettre_motivation' => 'required|string',
+            'lettre_motivation' => 'nullable|string',
             'montant_propose' => 'required|numeric|min:0',
             'delai_propose' => 'required|date|after:now',
         ]);
@@ -104,7 +104,7 @@ class PropositionController extends Controller
 
     public function accepter(Request $request, $id)
     {
-        $proposition = Proposition::with('projet')->findOrFail($id);
+        $proposition = Proposition::with(['projet', 'freelance'])->findOrFail($id);
         $user = $request->user();
 
         if ($proposition->projet->client_id !== $user->id) {
@@ -120,15 +120,31 @@ class PropositionController extends Controller
             ->where('statut', 'en_attente')
             ->update(['statut' => 'refusee']);
 
+        // Notifier le freelance
         Notification::create([
             'utilisateur_id' => $proposition->freelance_id,
             'type' => 'proposition_acceptee',
             'titre' => 'Candidature acceptée',
-            'contenu' => "Votre candidature pour le projet « {$proposition->projet->titre} » a été acceptée. Le client va procéder au paiement et générer le précontrat.",
-            'lien_action' => "/propositions/{$proposition->id}",
+            'contenu' => "Votre candidature pour le projet « {$proposition->projet->titre} » a été acceptée. Le client va procéder au paiement.",
+            'lien_action' => "/projets/{$proposition->projet_id}",
         ]);
 
-        return response()->json(['message' => 'Candidature acceptée', 'proposition' => $proposition->fresh()]);
+        // Notifier le client avec les instructions de paiement
+        $calc = app(PortefeuilleService::class)->calculerCommission($proposition->montant_propose);
+        
+        Notification::create([
+            'utilisateur_id' => $user->id,
+            'type' => 'proposition_acceptee',
+            'titre' => 'Candidature acceptée - Paiement requis',
+            'contenu' => "Vous avez accepté la candidature de {$proposition->freelance->prenom} {$proposition->freelance->nom} pour le projet « {$proposition->projet->titre} ». Montant total à payer : {$calc['total']} FCFA (budget : {$calc['prix_projet']} FCFA + commission 5% : {$calc['commission']} FCFA). Veuillez procéder au paiement.",
+            'lien_action' => "/projets/{$proposition->projet_id}",
+        ]);
+
+        return response()->json([
+            'message' => 'Candidature acceptée. Veuillez procéder au paiement.',
+            'proposition' => $proposition->fresh(),
+            'paiement' => $calc,
+        ]);
     }
 
     public function refuser(Request $request, $id)
@@ -154,5 +170,22 @@ class PropositionController extends Controller
         ]);
 
         return response()->json(['message' => 'Candidature refusée']);
+    }
+
+    public function getPrecontratInfo(Request $request, $id)
+    {
+        $proposition = Proposition::with(['precontrat'])->findOrFail($id);
+        $user = $request->user();
+
+        // Seul le client propriétaire du projet peut récupérer les infos du précontrat
+        if ($proposition->projet->client_id !== $user->id) {
+            return response()->json(['message' => 'Non autorisé'], 403);
+        }
+
+        if (!$proposition->precontrat) {
+            return response()->json(['message' => 'Aucun précontrat trouvé pour cette proposition'], 404);
+        }
+
+        return response()->json(['precontrat' => $proposition->precontrat]);
     }
 }
